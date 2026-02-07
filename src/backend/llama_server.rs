@@ -160,7 +160,10 @@ impl LlamaServer {
                 }
                 Err(_) => {
                     // Timeout — force kill
-                    tracing::warn!("llama-server did not exit within {:?}, sending SIGKILL", GRACEFUL_SHUTDOWN_TIMEOUT);
+                    tracing::warn!(
+                        "llama-server did not exit within {:?}, sending SIGKILL",
+                        GRACEFUL_SHUTDOWN_TIMEOUT
+                    );
                     let _ = child.kill().await;
                 }
             }

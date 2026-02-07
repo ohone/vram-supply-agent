@@ -42,8 +42,10 @@ impl Config {
             }
         };
 
-        let platform_url =
-            env_or("VRAM_SUPPLY_PLATFORM_URL", "https://api.vram.supply".to_string())?;
+        let platform_url = env_or(
+            "VRAM_SUPPLY_PLATFORM_URL",
+            "https://api.vram.supply".to_string(),
+        )?;
         let port: u16 = env_or("VRAM_SUPPLY_PORT", 8080)?;
         let public_url = env_or(
             "VRAM_SUPPLY_PUBLIC_URL",

@@ -43,6 +43,126 @@ impl AgentPresenceState {
     }
 }
 
+/// Wrapper around presence state with methods to transition status and publish.
+/// All fields are Arc-wrapped so this is cheap to Clone.
+#[derive(Clone)]
+pub struct PresenceHandle {
+    state: Arc<tokio::sync::Mutex<AgentPresenceState>>,
+    client: reqwest::Client,
+    config: Config,
+    token: Arc<tokio::sync::Mutex<String>>,
+    identity: AgentIdentity,
+}
+
+impl PresenceHandle {
+    pub fn new(
+        model_name: Option<String>,
+        client: reqwest::Client,
+        config: Config,
+        token: Arc<tokio::sync::Mutex<String>>,
+        identity: AgentIdentity,
+    ) -> Self {
+        let state = Arc::new(tokio::sync::Mutex::new(AgentPresenceState::new(
+            AgentPresenceStatus::Idle,
+            model_name,
+        )));
+        PresenceHandle {
+            state,
+            client,
+            config,
+            token,
+            identity,
+        }
+    }
+
+    /// Transition to a new status, clearing error fields and publishing.
+    pub async fn transition(&self, status: AgentPresenceStatus) {
+        {
+            let mut s = self.state.lock().await;
+            s.status = status;
+            s.loading_progress_pct = None;
+            s.error_code = None;
+            s.error_message = None;
+        }
+        self.publish().await;
+    }
+
+    /// Report an error status with code and message, then publish.
+    pub async fn report_error(&self, code: &str, msg: &str) {
+        {
+            let mut s = self.state.lock().await;
+            s.status = AgentPresenceStatus::Error;
+            s.error_code = Some(code.to_string());
+            s.error_message = Some(msg.to_string());
+        }
+        self.publish().await;
+    }
+
+    /// Report a degraded status with code and message, then publish.
+    pub async fn report_degraded(&self, code: &str, msg: &str) {
+        {
+            let mut s = self.state.lock().await;
+            s.status = AgentPresenceStatus::Degraded;
+            s.active_requests = 0;
+            s.error_code = Some(code.to_string());
+            s.error_message = Some(msg.to_string());
+        }
+        self.publish().await;
+    }
+
+    /// Update the active request count and toggle Ready/Serving, then publish.
+    pub async fn update_active_requests(&self, n: u32) {
+        let mut s = self.state.lock().await;
+        s.active_requests = n;
+        if n > 0 {
+            s.status = AgentPresenceStatus::Serving;
+        } else if matches!(
+            s.status,
+            AgentPresenceStatus::Ready
+                | AgentPresenceStatus::Serving
+                | AgentPresenceStatus::Idle
+                | AgentPresenceStatus::LoadingModel
+        ) {
+            s.status = AgentPresenceStatus::Ready;
+        }
+        // Drop lock before publish — publish will re-lock to snapshot.
+        drop(s);
+        self.publish().await;
+    }
+
+    /// Publish the current state snapshot to the platform.
+    pub async fn publish(&self) {
+        let current_token = self.token.lock().await.clone();
+        let snapshot = self.state.lock().await.clone();
+        if let Err(e) = send_presence_once(
+            &self.client,
+            &self.config,
+            &current_token,
+            &self.identity,
+            &snapshot,
+        )
+        .await
+        {
+            tracing::warn!("Presence update failed: {}", e);
+        }
+    }
+
+    /// Spawn the periodic presence heartbeat loop.
+    pub fn spawn_loop(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
+        let handle = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(15));
+            loop {
+                tokio::select! {
+                    _ = shutdown.cancelled() => break,
+                    _ = interval.tick() => {}
+                }
+                handle.publish().await;
+            }
+        })
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct PresencePayload {
     agent_uid: String,
@@ -74,7 +194,7 @@ fn make_payload(agent: &AgentIdentity, state: &AgentPresenceState) -> PresencePa
     }
 }
 
-pub async fn send_presence_once(
+async fn send_presence_once(
     client: &reqwest::Client,
     config: &Config,
     access_token: &str,
@@ -98,31 +218,4 @@ pub async fn send_presence_once(
     }
 
     Ok(())
-}
-
-pub fn spawn_presence_loop(
-    client: reqwest::Client,
-    config: Config,
-    token: Arc<tokio::sync::Mutex<String>>,
-    agent: AgentIdentity,
-    state: Arc<tokio::sync::Mutex<AgentPresenceState>>,
-    shutdown: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
-        loop {
-            tokio::select! {
-                _ = shutdown.cancelled() => break,
-                _ = interval.tick() => {}
-            }
-            let current_token = token.lock().await.clone();
-            let snapshot = state.lock().await.clone();
-
-            if let Err(e) =
-                send_presence_once(&client, &config, &current_token, &agent, &snapshot).await
-            {
-                tracing::warn!("Presence heartbeat failed: {}", e);
-            }
-        }
-    })
 }
