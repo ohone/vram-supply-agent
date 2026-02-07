@@ -117,7 +117,7 @@ jobs:
           echo "hashes=${HASHES}" >> "$GITHUB_OUTPUT"
 
   provenance:
-    needs: [build, compute-subjects]
+    needs: [build, compute-subjects, release]
     permissions:
       actions: read
       id-token: write
