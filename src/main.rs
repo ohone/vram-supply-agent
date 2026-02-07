@@ -4,6 +4,7 @@ mod config;
 mod identity;
 mod models;
 mod presence;
+mod verification;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,6 +45,14 @@ enum Commands {
         /// Use device code flow instead of browser-based login
         #[arg(long)]
         headless: bool,
+
+        /// HuggingFace repository ID for model verification (e.g., TheBloke/Llama-2-7B-GGUF)
+        #[arg(long)]
+        hf_repo: Option<String>,
+
+        /// Skip model integrity verification
+        #[arg(long)]
+        skip_verify: bool,
     },
     /// Model management commands
     Models {
@@ -119,8 +128,10 @@ async fn main() -> Result<()> {
             model,
             model_name,
             headless,
+            hf_repo,
+            skip_verify,
         } => {
-            run_serve(&config, model, model_name, headless).await?;
+            run_serve(&config, model, model_name, headless, hf_repo, skip_verify).await?;
         }
 
         Commands::Models { command } => match command {
@@ -171,6 +182,8 @@ struct RegisterRequest {
     context_length_offered: u32,
     input_price_per_million: u32,
     output_price_per_million: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_sha256: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -184,6 +197,8 @@ async fn run_serve(
     model_arg: Option<String>,
     model_name_override: Option<String>,
     headless: bool,
+    hf_repo: Option<String>,
+    skip_verify: bool,
 ) -> Result<()> {
     let shutdown = CancellationToken::new();
 
@@ -211,6 +226,22 @@ async fn run_serve(
         }
     };
     tracing::info!("Serving model: {}", model_path);
+
+    // Verify model integrity
+    let model_sha256 = if skip_verify {
+        verification::verify_model(&model_path, "", true).await?
+    } else {
+        let hf_repo_id = hf_repo.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Model verification requires --hf-repo <repo_id> \
+                 (e.g., --hf-repo TheBloke/Llama-2-7B-GGUF).\n\
+                 Use --skip-verify to bypass verification."
+            )
+        })?;
+        let sha = verification::verify_model(&model_path, hf_repo_id, false).await?;
+        println!("Model verified: {} (SHA-256: {})", hf_repo_id, sha);
+        sha
+    };
 
     let model_name = match model_name_override {
         Some(name) => name,
@@ -248,7 +279,20 @@ async fn run_serve(
     tracing::info!("llama-server is healthy on port {}", config.port);
 
     // Register with platform
-    let reg = register_with_platform(&client, config, &token, &model_name, &presence).await?;
+    let model_sha256_field = if model_sha256 == "unverified" {
+        None
+    } else {
+        Some(model_sha256)
+    };
+    let reg = register_with_platform(
+        &client,
+        config,
+        &token,
+        &model_name,
+        model_sha256_field,
+        &presence,
+    )
+    .await?;
     let deregister_url = format!("{}/v1/providers/{}", config.platform_url, reg.id);
 
     presence.transition(AgentPresenceStatus::Ready).await;
@@ -320,6 +364,7 @@ async fn register_with_platform(
     config: &config::Config,
     token: &Arc<tokio::sync::Mutex<String>>,
     model_name: &str,
+    model_sha256: Option<String>,
     presence: &PresenceHandle,
 ) -> Result<RegisterResponse> {
     let register_url = format!("{}/v1/providers/register", config.platform_url);
@@ -330,6 +375,7 @@ async fn register_with_platform(
         context_length_offered: config.context_length_offered,
         input_price_per_million: config.input_price_per_million,
         output_price_per_million: config.output_price_per_million,
+        model_sha256,
     };
 
     let reg_token = token.lock().await.clone();

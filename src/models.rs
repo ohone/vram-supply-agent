@@ -147,6 +147,15 @@ fn map_to_hf_repo(name: &str) -> Option<String> {
     None
 }
 
+/// Extract the GGUF filename from a model path.
+pub fn gguf_filename(model_path: &str) -> Result<String> {
+    Path::new(model_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Could not extract filename from path: {}", model_path))
+}
+
 /// Find a model file by name or path. If the input is an absolute path that
 /// exists, return it directly. Otherwise search the model directory.
 pub fn find_model(config: &Config, name_or_path: &str) -> Result<String> {
