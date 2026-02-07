@@ -6,10 +6,12 @@ mod models;
 mod presence;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use presence::{AgentPresenceState, AgentPresenceStatus};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[command(
@@ -183,6 +185,8 @@ async fn run_serve(
     model_name_override: Option<String>,
     headless: bool,
 ) -> Result<()> {
+    let shutdown = CancellationToken::new();
+
     // Authenticate (loads existing credentials or triggers login)
     let creds = auth::ensure_authenticated(config, headless).await?;
     let token = Arc::new(tokio::sync::Mutex::new(creds.access_token));
@@ -232,6 +236,7 @@ async fn run_serve(
         Arc::clone(&token),
         identity.clone(),
         Arc::clone(&presence_state),
+        shutdown.clone(),
     );
 
     {
@@ -252,14 +257,14 @@ async fn run_serve(
     .await;
 
     // 2. Start llama-server
-    let mut llama = backend::LlamaServer::new(
+    let llama = Arc::new(tokio::sync::Mutex::new(backend::LlamaServer::new(
         model_path.clone(),
         config.port,
         config.llama_server_path.clone(),
         config.gpu_layers,
         config.context_length_offered,
-    );
-    if let Err(e) = llama.start().await {
+    )));
+    if let Err(e) = llama.lock().await.start().await {
         {
             let mut state = presence_state.lock().await;
             state.status = AgentPresenceStatus::Error;
@@ -274,7 +279,8 @@ async fn run_serve(
             Arc::clone(&presence_state),
         )
         .await;
-        presence_handle.abort();
+        shutdown.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(2), presence_handle).await;
         return Err(e);
     }
     tracing::info!("llama-server is healthy on port {}", config.port);
@@ -315,7 +321,8 @@ async fn run_serve(
                 Arc::clone(&presence_state),
             )
             .await;
-            presence_handle.abort();
+            shutdown.cancel();
+            let _ = tokio::time::timeout(Duration::from_secs(2), presence_handle).await;
             return Err(e.into());
         }
     };
@@ -337,7 +344,8 @@ async fn run_serve(
             Arc::clone(&presence_state),
         )
         .await;
-        presence_handle.abort();
+        shutdown.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(2), presence_handle).await;
         anyhow::bail!("Registration failed ({}): {}", status, body);
     }
 
@@ -358,7 +366,8 @@ async fn run_serve(
                 Arc::clone(&presence_state),
             )
             .await;
-            presence_handle.abort();
+            shutdown.cancel();
+            let _ = tokio::time::timeout(Duration::from_secs(2), presence_handle).await;
             return Err(e.into());
         }
     };
@@ -396,10 +405,14 @@ async fn run_serve(
     let heartbeat_client = client.clone();
     let heartbeat_token = Arc::clone(&token);
     let heartbeat_config = config.clone();
+    let heartbeat_shutdown = shutdown.clone();
     let heartbeat_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = heartbeat_shutdown.cancelled() => break,
+                _ = interval.tick() => {}
+            }
 
             // Refresh token if expiring soon
             match auth::load_valid_credentials(&heartbeat_config).await {
@@ -434,10 +447,16 @@ async fn run_serve(
 
     // 5. Health monitor for llama-server
     let monitor_presence_state = Arc::clone(&presence_state);
+    let monitor_llama = Arc::clone(&llama);
+    let monitor_shutdown = shutdown.clone();
     let monitor_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = monitor_shutdown.cancelled() => break,
+                _ = interval.tick() => {}
+            }
+            let mut llama = monitor_llama.lock().await;
             if !llama.is_running() {
                 tracing::warn!("llama-server has stopped, attempting restart...");
                 {
@@ -495,6 +514,14 @@ async fn run_serve(
     tracing::info!("Shutting down...");
     println!("\nShutting down...");
 
+    // Signal all tasks to stop
+    shutdown.cancel();
+
+    // Explicitly stop llama-server before waiting on tasks
+    if let Err(e) = llama.lock().await.stop().await {
+        tracing::warn!("Error stopping llama-server: {}", e);
+    }
+
     {
         let mut state = presence_state.lock().await;
         state.status = AgentPresenceStatus::Unavailable;
@@ -531,10 +558,12 @@ async fn run_serve(
         }
     }
 
-    // Abort tasks
-    heartbeat_handle.abort();
-    monitor_handle.abort();
-    presence_handle.abort();
+    // Wait for tasks to finish (with timeout)
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        let (r1, r2, r3) = tokio::join!(heartbeat_handle, monitor_handle, presence_handle);
+        let _ = (r1, r2, r3);
+    })
+    .await;
 
     Ok(())
 }

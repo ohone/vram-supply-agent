@@ -229,6 +229,8 @@ impl Drop for LlamaServer {
         if let Some(ref mut child) = self.child {
             // Best-effort synchronous kill on drop
             let _ = child.start_kill();
+            // Reap the zombie so we don't leak a process table entry
+            let _ = child.try_wait();
         }
     }
 }

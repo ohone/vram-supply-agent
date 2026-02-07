@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Result};
 use serde::Serialize;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::identity::AgentIdentity;
@@ -105,11 +106,15 @@ pub fn spawn_presence_loop(
     token: Arc<tokio::sync::Mutex<String>>,
     agent: AgentIdentity,
     state: Arc<tokio::sync::Mutex<AgentPresenceState>>,
+    shutdown: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = interval.tick() => {}
+            }
             let current_token = token.lock().await.clone();
             let snapshot = state.lock().await.clone();
 
