@@ -7,7 +7,7 @@ mod presence;
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use presence::{AgentPresenceState, AgentPresenceStatus};
 
@@ -489,7 +489,7 @@ async fn run_serve(
     // Wait for shutdown signal
     tokio::signal::ctrl_c()
         .await
-        .expect("Failed to listen for Ctrl+C");
+        .context("Failed to listen for Ctrl+C")?;
 
     tracing::info!("Shutting down...");
     println!("\nShutting down...");
@@ -511,14 +511,24 @@ async fn run_serve(
     )
     .await;
 
-    // Deregister
+    // Deregister (best-effort on shutdown path — log but don't propagate)
     let current_token = token.lock().await.clone();
-    let _ = client
+    match client
         .delete(&deregister_url)
         .header("Authorization", format!("Bearer {}", current_token))
         .send()
-        .await;
-    tracing::info!("Deregistered from platform");
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!("Deregistered from platform");
+        }
+        Ok(resp) => {
+            tracing::warn!("Deregister returned HTTP {}", resp.status());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to deregister from platform: {}", e);
+        }
+    }
 
     // Abort tasks
     heartbeat_handle.abort();

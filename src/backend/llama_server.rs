@@ -35,7 +35,7 @@ impl LlamaServer {
 
         let response = client.get(&url).send().await?;
         if !response.status().is_success() {
-            return Ok(0);
+            anyhow::bail!("/slots returned HTTP {}", response.status());
         }
 
         let body: Value = response.json().await?;

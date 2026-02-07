@@ -1,6 +1,7 @@
 pub mod credentials;
 
 use std::net::TcpListener;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -11,6 +12,22 @@ use url::Url;
 
 use crate::config::Config;
 use credentials::{load_credentials, save_credentials, Credentials};
+
+/// Current Unix epoch timestamp in seconds.
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is before Unix epoch")
+        .as_secs()
+}
+
+/// Serializes concurrent calls to `load_valid_credentials` so that only one
+/// task performs a refresh-token exchange at a time.
+static REFRESH_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn refresh_lock() -> &'static tokio::sync::Mutex<()> {
+    REFRESH_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 /// Generate a cryptographically random code verifier (43-128 URL-safe chars).
 fn generate_code_verifier() -> String {
@@ -93,7 +110,8 @@ pub async fn login_pkce(config: &Config) -> Result<()> {
     let response = tiny_http::Response::from_string(
         "<html><body><h1>Authentication successful!</h1><p>You can close this window and return to the terminal.</p></body></html>"
     ).with_header(
-        "Content-Type: text/html".parse::<tiny_http::Header>().unwrap()
+        // Static string, infallible parse
+        "Content-Type: text/html".parse::<tiny_http::Header>().expect("valid static header")
     );
     let _ = request.respond(response);
 
@@ -150,10 +168,7 @@ pub async fn login_pkce(config: &Config) -> Result<()> {
         .await
         .context("Failed to parse token response")?;
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = unix_now();
 
     let creds = Credentials {
         access_token: token_data.access_token,
@@ -273,13 +288,15 @@ pub async fn login_device_code(config: &Config) -> Result<()> {
 }
 
 /// Load credentials, refreshing if they expire within 5 minutes.
+///
+/// A std::sync::Mutex serializes concurrent callers so only one task performs
+/// the refresh-token exchange; others re-read the already-refreshed file.
 pub async fn load_valid_credentials(config: &Config) -> Result<Credentials> {
+    let _guard = refresh_lock().lock().await;
+
     let creds = load_credentials()?;
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = unix_now();
 
     // Refresh if expiring within 5 minutes
     if creds.expires_at <= now + 300 {
@@ -317,10 +334,7 @@ async fn refresh_token(config: &Config, refresh_token: &str) -> Result<Credentia
         .await
         .context("Failed to parse refresh token response")?;
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = unix_now();
 
     let creds = Credentials {
         access_token: token_data.access_token,
