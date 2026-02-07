@@ -140,7 +140,7 @@ async fn main() -> Result<()> {
                 }
             }
             ModelCommands::Pull { hf_repo_id } => {
-                models::pull_model(&hf_repo_id);
+                models::pull_model(&hf_repo_id)?;
             }
         },
 
@@ -257,6 +257,7 @@ async fn run_serve(
         config.port,
         config.llama_server_path.clone(),
         config.gpu_layers,
+        config.context_length_offered,
     );
     if let Err(e) = llama.start().await {
         {

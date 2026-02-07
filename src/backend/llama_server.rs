@@ -5,24 +5,40 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::process::{Child, Command};
 
+const HEALTH_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(60);
+const INITIAL_RESTART_BACKOFF: Duration = Duration::from_secs(1);
+const SLOTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct LlamaServer {
     child: Option<Child>,
     port: u16,
     model_path: String,
     llama_server_path: String,
     gpu_layers: u32,
+    context_length: u32,
     restart_backoff: Duration,
 }
 
 impl LlamaServer {
-    pub fn new(model_path: String, port: u16, llama_server_path: String, gpu_layers: u32) -> Self {
+    pub fn new(
+        model_path: String,
+        port: u16,
+        llama_server_path: String,
+        gpu_layers: u32,
+        context_length: u32,
+    ) -> Self {
         LlamaServer {
             child: None,
             port,
             model_path,
             llama_server_path,
             gpu_layers,
-            restart_backoff: Duration::from_secs(1),
+            context_length,
+            restart_backoff: INITIAL_RESTART_BACKOFF,
         }
     }
 
@@ -30,7 +46,7 @@ impl LlamaServer {
     pub async fn active_requests(&self) -> Result<u32> {
         let url = format!("http://127.0.0.1:{}/slots", self.port);
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(3))
+            .timeout(SLOTS_REQUEST_TIMEOUT)
             .build()?;
 
         let response = client.get(&url).send().await?;
@@ -77,11 +93,12 @@ impl LlamaServer {
     /// Start the llama-server subprocess.
     pub async fn start(&mut self) -> Result<()> {
         tracing::info!(
-            "Starting llama-server: {} -m {} --host 127.0.0.1 --port {} -ngl {} --ctx-size 8192",
+            "Starting llama-server: {} -m {} --host 127.0.0.1 --port {} -ngl {} --ctx-size {}",
             self.llama_server_path,
             self.model_path,
             self.port,
             self.gpu_layers,
+            self.context_length,
         );
 
         let child = Command::new(&self.llama_server_path)
@@ -94,7 +111,7 @@ impl LlamaServer {
             .arg("-ngl")
             .arg(self.gpu_layers.to_string())
             .arg("--ctx-size")
-            .arg("8192")
+            .arg(self.context_length.to_string())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
@@ -110,9 +127,9 @@ impl LlamaServer {
         self.child = Some(child);
 
         // Wait for the server to become healthy
-        self.wait_for_healthy(Duration::from_secs(60)).await?;
+        self.wait_for_healthy(HEALTH_STARTUP_TIMEOUT).await?;
 
-        self.restart_backoff = Duration::from_secs(1);
+        self.restart_backoff = INITIAL_RESTART_BACKOFF;
         Ok(())
     }
 
@@ -134,8 +151,7 @@ impl LlamaServer {
                 let _ = child.start_kill();
             }
 
-            // Wait up to 5 seconds for graceful shutdown
-            match tokio::time::timeout(Duration::from_secs(5), child.wait()).await {
+            match tokio::time::timeout(GRACEFUL_SHUTDOWN_TIMEOUT, child.wait()).await {
                 Ok(Ok(status)) => {
                     tracing::info!("llama-server exited with status: {}", status);
                 }
@@ -144,7 +160,7 @@ impl LlamaServer {
                 }
                 Err(_) => {
                     // Timeout — force kill
-                    tracing::warn!("llama-server did not exit within 5s, sending SIGKILL");
+                    tracing::warn!("llama-server did not exit within {:?}, sending SIGKILL", GRACEFUL_SHUTDOWN_TIMEOUT);
                     let _ = child.kill().await;
                 }
             }
@@ -171,7 +187,7 @@ impl LlamaServer {
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("http://127.0.0.1:{}/health", self.port);
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
+            .timeout(HEALTH_CHECK_TIMEOUT)
             .build()?;
 
         match client.get(&url).send().await {
@@ -191,7 +207,7 @@ impl LlamaServer {
                 tracing::info!("llama-server is healthy");
                 return Ok(());
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(HEALTH_POLL_INTERVAL).await;
         }
     }
 
@@ -202,7 +218,7 @@ impl LlamaServer {
             self.restart_backoff
         );
         tokio::time::sleep(self.restart_backoff).await;
-        self.restart_backoff = (self.restart_backoff * 2).min(Duration::from_secs(60));
+        self.restart_backoff = (self.restart_backoff * 2).min(MAX_RESTART_BACKOFF);
         self.stop().await?;
         self.start().await
     }

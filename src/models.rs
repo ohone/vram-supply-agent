@@ -56,8 +56,8 @@ pub fn list_local_models(config: &Config) -> Result<Vec<LocalModel>> {
 }
 
 /// Pull a model from HuggingFace (not yet implemented).
-pub fn pull_model(_hf_repo_id: &str) {
-    println!("Model download not yet implemented");
+pub fn pull_model(_hf_repo_id: &str) -> Result<()> {
+    anyhow::bail!("model download not yet implemented");
 }
 
 /// Format bytes into a human-readable size string.

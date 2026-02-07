@@ -13,6 +13,9 @@ use url::Url;
 use crate::config::Config;
 use credentials::{load_credentials, save_credentials, Credentials};
 
+const OAUTH_CLIENT_ID: &str = "vram-supply-agent";
+const TOKEN_REFRESH_BUFFER_SECS: u64 = 300;
+
 /// Current Unix epoch timestamp in seconds.
 fn unix_now() -> u64 {
     SystemTime::now()
@@ -68,7 +71,7 @@ pub async fn login_pkce(config: &Config) -> Result<()> {
     auth_url
         .query_pairs_mut()
         .append_pair("response_type", "code")
-        .append_pair("client_id", "vram-supply-agent")
+        .append_pair("client_id", OAUTH_CLIENT_ID)
         .append_pair("redirect_uri", &redirect_uri)
         .append_pair("code_challenge", &code_challenge)
         .append_pair("code_challenge_method", "S256")
@@ -145,7 +148,7 @@ pub async fn login_pkce(config: &Config) -> Result<()> {
         .post(format!("{}/oauth/token", config.platform_url))
         .form(&[
             ("grant_type", "authorization_code"),
-            ("client_id", "vram-supply-agent"),
+            ("client_id", OAUTH_CLIENT_ID),
             ("code", code),
             ("redirect_uri", &redirect_uri),
             ("code_verifier", &code_verifier),
@@ -188,7 +191,7 @@ pub async fn login_device_code(config: &Config) -> Result<()> {
     // Request device code
     let device_response = client
         .post(format!("{}/oauth/device", config.platform_url))
-        .form(&[("client_id", "vram-supply-agent")])
+        .form(&[("client_id", OAUTH_CLIENT_ID)])
         .send()
         .await
         .context("Failed to request device code")?;
@@ -226,7 +229,7 @@ pub async fn login_device_code(config: &Config) -> Result<()> {
             .post(format!("{}/oauth/token", config.platform_url))
             .form(&[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("client_id", "vram-supply-agent"),
+                ("client_id", OAUTH_CLIENT_ID),
                 ("device_code", &device_data.device_code),
             ])
             .send()
@@ -239,10 +242,7 @@ pub async fn login_device_code(config: &Config) -> Result<()> {
                 .await
                 .context("Failed to parse token response")?;
 
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let now = unix_now();
 
             let creds = Credentials {
                 access_token: token_data.access_token,
@@ -299,7 +299,7 @@ pub async fn load_valid_credentials(config: &Config) -> Result<Credentials> {
     let now = unix_now();
 
     // Refresh if expiring within 5 minutes
-    if creds.expires_at <= now + 300 {
+    if creds.expires_at <= now + TOKEN_REFRESH_BUFFER_SECS {
         tracing::info!("Access token expiring soon, refreshing...");
         return refresh_token(config, &creds.refresh_token).await;
     }
@@ -313,7 +313,7 @@ async fn refresh_token(config: &Config, refresh_token: &str) -> Result<Credentia
         .post(format!("{}/oauth/token", config.platform_url))
         .form(&[
             ("grant_type", "refresh_token"),
-            ("client_id", "vram-supply-agent"),
+            ("client_id", OAUTH_CLIENT_ID),
             ("refresh_token", refresh_token),
         ])
         .send()
@@ -350,10 +350,7 @@ async fn refresh_token(config: &Config, refresh_token: &str) -> Result<Credentia
 pub fn show_auth_status() -> Result<()> {
     match load_credentials() {
         Ok(creds) => {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let now = unix_now();
 
             if creds.expires_at > now {
                 let remaining = creds.expires_at - now;
