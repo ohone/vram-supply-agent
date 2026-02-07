@@ -26,10 +26,6 @@ impl LlamaServer {
         }
     }
 
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
     /// Best-effort estimate of currently active requests from /slots.
     pub async fn active_requests(&self) -> Result<u32> {
         let url = format!("http://127.0.0.1:{}/slots", self.port);
