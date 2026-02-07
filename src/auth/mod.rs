@@ -4,6 +4,8 @@ use std::net::TcpListener;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -29,44 +31,7 @@ fn compute_code_challenge(verifier: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(verifier.as_bytes());
     let hash = hasher.finalize();
-    base64url_encode(&hash)
-}
-
-/// Base64url encode without padding (RFC 7636).
-fn base64url_encode(data: &[u8]) -> String {
-    let mut encoded = String::new();
-    // Standard base64 encoding
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut i = 0;
-    while i < data.len() {
-        let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() {
-            data[i + 1] as u32
-        } else {
-            0
-        };
-        let b2 = if i + 2 < data.len() {
-            data[i + 2] as u32
-        } else {
-            0
-        };
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-
-        encoded.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        encoded.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-
-        if i + 1 < data.len() {
-            encoded.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        }
-        if i + 2 < data.len() {
-            encoded.push(CHARS[(triple & 0x3F) as usize] as char);
-        }
-
-        i += 3;
-    }
-
-    // Convert to URL-safe: replace + with -, / with _
-    encoded.replace('+', "-").replace('/', "_")
+    URL_SAFE_NO_PAD.encode(hash)
 }
 
 /// PKCE Authorization Code Flow.

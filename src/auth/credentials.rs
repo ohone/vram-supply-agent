@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credentials {
     pub access_token: String,
@@ -20,12 +23,39 @@ fn credentials_path() -> Result<PathBuf> {
 pub fn save_credentials(creds: &Credentials) -> Result<()> {
     let path = credentials_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        #[cfg(unix)]
+        {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        #[cfg(not(unix))]
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
     }
     let json = serde_json::to_string_pretty(creds).context("Failed to serialize credentials")?;
-    fs::write(&path, json)
-        .with_context(|| format!("Failed to write credentials to {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .with_context(|| format!("Failed to open credentials at {}", path.display()))?;
+        file.write_all(json.as_bytes())
+            .with_context(|| format!("Failed to write credentials to {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(&path, json)
+            .with_context(|| format!("Failed to write credentials to {}", path.display()))?;
+    }
     tracing::info!("Credentials saved to {}", path.display());
     Ok(())
 }
