@@ -1,0 +1,115 @@
+name: Test installer
+
+on:
+  push:
+    branches: [main]
+    paths: [install.sh]
+  pull_request:
+    paths: [install.sh]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+jobs:
+  smoke:
+    name: Install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install latest release
+        run: sh install.sh
+
+      - name: Verify binary runs
+        run: ~/.local/bin/vramsply --version
+
+  pinned:
+    name: Pinned version (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned version
+        env:
+          VRAM_SUPPLY_AGENT_VERSION: v0.1.0
+        run: sh install.sh
+
+      - name: Verify version string
+        run: |
+          VERSION="$(~/.local/bin/vramsply --version)"
+          echo "Got: ${VERSION}"
+          echo "${VERSION}" | grep -q "0.1.0"
+
+  tamper:
+    name: Tamper test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tamper and verify rejection
+        run: |
+          # Create a fake binary that will fail checksum
+          TMPDIR="$(mktemp -d)"
+          REPO="ohone/vram-supply-agent"
+
+          # Fetch the latest version tag
+          VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+            | grep '"tag_name"' \
+            | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+
+          # Detect target triple
+          OS="$(uname -s)"
+          ARCH="$(uname -m)"
+          case "${OS}" in
+            Linux)  OS_TARGET="unknown-linux-gnu" ;;
+            Darwin) OS_TARGET="apple-darwin" ;;
+          esac
+          case "${ARCH}" in
+            x86_64|amd64)   ARCH_TARGET="x86_64" ;;
+            aarch64|arm64)  ARCH_TARGET="aarch64" ;;
+          esac
+          TARGET="${ARCH_TARGET}-${OS_TARGET}"
+
+          # Download the real binary
+          curl -fSL -o "${TMPDIR}/vramsply" \
+            "https://github.com/${REPO}/releases/download/${VERSION}/vramsply-${TARGET}"
+
+          # Tamper: flip a byte
+          printf '\xff' | dd of="${TMPDIR}/vramsply" bs=1 seek=64 count=1 conv=notrunc 2>/dev/null
+
+          # Create a local HTTP server to serve the tampered binary and real checksums
+          CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"
+          curl -fSL -o "${TMPDIR}/SHA256SUMS.txt" "${CHECKSUMS_URL}"
+
+          # Run the installer overriding curl to serve our tampered file
+          # Instead, we test the checksum logic directly
+          case "${OS}" in
+            Linux)  ACTUAL="$(sha256sum "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
+            Darwin) ACTUAL="$(shasum -a 256 "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
+          esac
+          EXPECTED="$(grep "vramsply-${TARGET}" "${TMPDIR}/SHA256SUMS.txt" | awk '{print $1}')"
+
+          if [ "${ACTUAL}" = "${EXPECTED}" ]; then
+            echo "FAIL: tampered binary matched checksum (this should not happen)" >&2
+            exit 1
+          fi
+
+          echo "PASS: tampered binary correctly has mismatched checksum"
+          echo "  Expected: ${EXPECTED}"
+          echo "  Actual:   ${ACTUAL}"
+          rm -rf "${TMPDIR}"

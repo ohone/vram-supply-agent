@@ -1,0 +1,27 @@
+[package]
+name = "vram-supply-agent"
+version = "0.1.0"
+edition = "2021"
+description = "vram.supply provider agent — connect your model inference node to the marketplace"
+license = "Apache-2.0"
+
+[[bin]]
+name = "vramsply"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+anyhow = "1"
+dirs = "6"
+open = "5"
+tiny_http = "0.12"
+libc = "0.2"
