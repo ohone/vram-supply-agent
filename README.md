@@ -29,8 +29,8 @@ cosign verify-blob \
 ## Quick start
 
 ```bash
-# 1. Authenticate with the platform
-vramsply auth login
+# 1. Set your API key
+export VRAM_SUPPLY_API_KEY=your-api-key
 
 # 2. Start serving a model
 vramsply serve --model ./my-model.gguf
@@ -48,13 +48,9 @@ Press `Ctrl+C` to gracefully shut down (deregisters from the platform).
 
 | Command | Description |
 |---------|-------------|
-| `vramsply auth login` | Authenticate via browser (PKCE flow) |
-| `vramsply auth login --headless` | Authenticate via device code (for headless servers) |
 | `vramsply auth status` | Show current authentication status |
-| `vramsply auth logout` | Clear stored credentials |
 | `vramsply serve --model <path>` | Start serving a model |
 | `vramsply serve --model <path> --model_name <name>` | Serve with a custom model name |
-| `vramsply serve --headless` | Serve with device code auth |
 | `vramsply models list` | List locally available GGUF models |
 | `vramsply models pull <hf_repo_id>` | Download a model from HuggingFace |
 | `vramsply status` | Show agent status |
@@ -65,6 +61,7 @@ All configuration is via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `VRAM_SUPPLY_API_KEY` | *(required)* | API key for platform authentication |
 | `VRAM_SUPPLY_PLATFORM_URL` | `https://api.vram.supply` | Platform API endpoint |
 | `VRAM_SUPPLY_PUBLIC_URL` | `http://localhost:$PORT` | Public URL for your inference endpoint |
 | `VRAM_SUPPLY_PORT` | `8080` | Port for llama-server |
@@ -83,11 +80,10 @@ All configuration is via environment variables:
 
 ## Data storage
 
-Credentials and agent identity are stored in `~/.vram-supply/`:
+Agent identity is stored in `~/.vram-supply/`:
 
 | File | Purpose |
 |------|---------|
-| `credentials.json` | OAuth tokens (access + refresh) |
 | `vramsply.json` | Persistent agent UID |
 
 ## Building from source

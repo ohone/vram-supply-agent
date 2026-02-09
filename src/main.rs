@@ -27,11 +27,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Authentication commands
-    Auth {
-        #[command(subcommand)]
-        command: AuthCommands,
-    },
+    /// Check API key authentication status
+    Auth,
     /// Start providing model inference
     Serve {
         /// Path to the model file to serve
@@ -41,10 +38,6 @@ enum Commands {
         /// Override the model name sent to the platform (e.g., "meta-llama/llama-3.1-8b-instruct")
         #[arg(long)]
         model_name: Option<String>,
-
-        /// Use device code flow instead of browser-based login
-        #[arg(long)]
-        headless: bool,
 
         /// HuggingFace repository ID for model verification (e.g., TheBloke/Llama-2-7B-GGUF)
         #[arg(long)]
@@ -66,20 +59,6 @@ enum Commands {
     },
     /// Show current agent status
     Status,
-}
-
-#[derive(Subcommand)]
-enum AuthCommands {
-    /// Authenticate with the platform
-    Login {
-        /// Use device code flow instead of browser-based login
-        #[arg(long)]
-        headless: bool,
-    },
-    /// Show current authentication status
-    Status,
-    /// Clear stored credentials
-    Logout,
 }
 
 #[derive(Subcommand)]
@@ -107,31 +86,17 @@ async fn main() -> Result<()> {
     let config = config::Config::load()?;
 
     match cli.command {
-        Commands::Auth { command } => match command {
-            AuthCommands::Login { headless } => {
-                if headless {
-                    auth::login_device_code(&config).await?;
-                } else {
-                    auth::login_pkce(&config).await?;
-                }
-            }
-            AuthCommands::Status => {
-                auth::show_auth_status()?;
-            }
-            AuthCommands::Logout => {
-                auth::credentials::clear_credentials()?;
-                println!("Logged out successfully.");
-            }
-        },
+        Commands::Auth => {
+            auth::show_auth_status();
+        }
 
         Commands::Serve {
             model,
             model_name,
-            headless,
             hf_repo,
             skip_verify,
         } => {
-            run_serve(&config, model, model_name, headless, hf_repo, skip_verify).await?;
+            run_serve(&config, model, model_name, hf_repo, skip_verify).await?;
         }
 
         Commands::Models { command } => match command {
@@ -164,7 +129,7 @@ async fn main() -> Result<()> {
 
         Commands::Status => {
             println!("Agent status:");
-            auth::show_auth_status()?;
+            auth::show_auth_status();
 
             let local_models = models::list_local_models(&config)?;
             println!("Local models: {}", local_models.len());
@@ -196,15 +161,12 @@ async fn run_serve(
     config: &config::Config,
     model_arg: Option<String>,
     model_name_override: Option<String>,
-    headless: bool,
     hf_repo: Option<String>,
     skip_verify: bool,
 ) -> Result<()> {
     let shutdown = CancellationToken::new();
 
-    // Authenticate
-    let creds = auth::ensure_authenticated(config, headless).await?;
-    let token = Arc::new(tokio::sync::Mutex::new(creds.access_token));
+    let token = Arc::new(tokio::sync::Mutex::new(config.api_key.clone()));
     let identity = identity::load_or_create_identity()?;
     let client = reqwest::Client::new();
 
@@ -416,7 +378,7 @@ async fn register_with_platform(
     Ok(reg)
 }
 
-/// Spawn a heartbeat loop that refreshes credentials and pings the platform.
+/// Spawn a heartbeat loop that pings the platform periodically.
 fn spawn_heartbeat_loop(
     client: reqwest::Client,
     config: config::Config,
@@ -430,17 +392,6 @@ fn spawn_heartbeat_loop(
             tokio::select! {
                 _ = shutdown.cancelled() => break,
                 _ = interval.tick() => {}
-            }
-
-            // Refresh token if expiring soon
-            match auth::load_valid_credentials(&config).await {
-                Ok(creds) => {
-                    let mut t = token.lock().await;
-                    *t = creds.access_token;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to refresh credentials: {}", e);
-                }
             }
 
             let current_token = token.lock().await.clone();

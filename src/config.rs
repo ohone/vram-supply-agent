@@ -15,6 +15,7 @@ pub struct Config {
     pub context_length_offered: u32,
     pub input_price_per_million: u32,
     pub output_price_per_million: u32,
+    pub api_key: String,
 }
 
 /// Read an environment variable, returning `default` when the var is unset.
@@ -58,6 +59,8 @@ impl Config {
         let context_length_offered: u32 = env_or("VRAM_SUPPLY_CONTEXT_LENGTH", 8192)?;
         let input_price_per_million: u32 = env_or("VRAM_SUPPLY_INPUT_PRICE", 100)?;
         let output_price_per_million: u32 = env_or("VRAM_SUPPLY_OUTPUT_PRICE", 200)?;
+        let api_key = std::env::var("VRAM_SUPPLY_API_KEY")
+            .map_err(|_| anyhow::anyhow!("VRAM_SUPPLY_API_KEY is required. Create an API key at https://vram.supply/keys and set it in your environment."))?;
 
         let config = Config {
             platform_url,
@@ -70,6 +73,7 @@ impl Config {
             context_length_offered,
             input_price_per_million,
             output_price_per_million,
+            api_key,
         };
         config.validate()?;
         Ok(config)
@@ -90,6 +94,9 @@ impl Config {
         }
         if self.public_url.is_empty() {
             bail!("VRAM_SUPPLY_PUBLIC_URL must not be empty");
+        }
+        if self.api_key.is_empty() {
+            bail!("VRAM_SUPPLY_API_KEY must not be empty");
         }
         Ok(())
     }
