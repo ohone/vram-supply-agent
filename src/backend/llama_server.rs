@@ -214,16 +214,12 @@ impl LlamaServer {
         }
     }
 
-    /// Restart the server with exponential backoff.
-    pub async fn restart_with_backoff(&mut self) -> Result<()> {
-        tracing::warn!(
-            "Restarting llama-server after backoff of {:?}",
-            self.restart_backoff
-        );
-        tokio::time::sleep(self.restart_backoff).await;
+    /// Read and bump the exponential backoff duration.
+    /// The caller should drop the lock before sleeping for the returned duration.
+    pub fn next_backoff(&mut self) -> Duration {
+        let backoff = self.restart_backoff;
         self.restart_backoff = (self.restart_backoff * 2).min(MAX_RESTART_BACKOFF);
-        self.stop().await?;
-        self.start().await
+        backoff
     }
 }
 

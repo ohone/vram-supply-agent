@@ -48,11 +48,13 @@ Press `Ctrl+C` to gracefully shut down (deregisters from the platform).
 
 | Command | Description |
 |---------|-------------|
-| `vramsply auth status` | Show current authentication status |
+| `vramsply auth` | Show current authentication status |
 | `vramsply serve --model <path>` | Start serving a model |
 | `vramsply serve --model <path> --model_name <name>` | Serve with a custom model name |
+| `vramsply serve --model <path> --hf-repo <repo_id>` | Serve with model integrity verification |
+| `vramsply serve --model <path> --skip-verify` | Serve without model verification |
 | `vramsply models list` | List locally available GGUF models |
-| `vramsply models pull <hf_repo_id>` | Download a model from HuggingFace |
+| `vramsply models pull <hf_repo_id>` | Download a model from HuggingFace (not yet implemented) |
 | `vramsply status` | Show agent status |
 
 ## Configuration
@@ -85,6 +87,11 @@ Agent identity is stored in `~/.vram-supply/`:
 | File | Purpose |
 |------|---------|
 | `vramsply.json` | Persistent agent UID |
+| `verification-cache.json` | SHA-256 model verification cache |
+
+## Model verification
+
+When serving a model, the agent can verify its integrity by comparing the file's SHA-256 hash against metadata from HuggingFace LFS. Use `--hf-repo <repo_id>` to enable verification (e.g., `--hf-repo TheBloke/Llama-2-7B-GGUF`). Use `--skip-verify` to bypass verification entirely. Verification results are cached locally to avoid re-hashing on subsequent runs.
 
 ## Building from source
 

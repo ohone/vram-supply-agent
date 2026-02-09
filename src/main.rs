@@ -52,11 +52,6 @@ enum Commands {
         #[command(subcommand)]
         command: ModelCommands,
     },
-    /// Run a benchmark on a model
-    Benchmark {
-        /// Path to the model file to benchmark
-        model_path: String,
-    },
     /// Show current agent status
     Status,
 }
@@ -121,11 +116,6 @@ async fn main() -> Result<()> {
                 models::pull_model(&hf_repo_id)?;
             }
         },
-
-        Commands::Benchmark { model_path } => {
-            println!("Benchmarking model: {}", model_path);
-            println!("Benchmark not yet implemented");
-        }
 
         Commands::Status => {
             println!("Agent status:");
@@ -222,7 +212,10 @@ async fn run_serve(
     let presence_handle = presence.spawn_loop(shutdown.clone());
 
     // Start llama-server
-    presence.transition(AgentPresenceStatus::LoadingModel).await;
+    presence
+        .transition(AgentPresenceStatus::LoadingModel)
+        .await
+        .expect("Idle → LoadingModel transition must be valid");
     let llama = Arc::new(tokio::sync::Mutex::new(backend::LlamaServer::new(
         model_path.clone(),
         config.port,
@@ -257,7 +250,10 @@ async fn run_serve(
     .await?;
     let deregister_url = format!("{}/v1/providers/{}", config.platform_url, reg.id);
 
-    presence.transition(AgentPresenceStatus::Ready).await;
+    presence
+        .transition(AgentPresenceStatus::Ready)
+        .await
+        .expect("LoadingModel → Ready transition must be valid");
     println!("vram.supply provider runtime is running. Press Ctrl+C to stop.");
     println!("  Model: {}", model_name);
     println!("  Endpoint: {}", config.public_url);
@@ -289,7 +285,10 @@ async fn run_serve(
         tracing::warn!("Error stopping llama-server: {}", e);
     }
 
-    presence.transition(AgentPresenceStatus::Unavailable).await;
+    presence
+        .transition(AgentPresenceStatus::Unavailable)
+        .await
+        .expect("Any → Unavailable transition must be valid");
 
     // Deregister (best-effort on shutdown path — log but don't propagate)
     let current_token = token.lock().await.clone();
@@ -378,7 +377,12 @@ async fn register_with_platform(
     Ok(reg)
 }
 
-/// Spawn a heartbeat loop that pings the platform periodically.
+/// Spawn the provider heartbeat loop (every 30s).
+///
+/// This sends an empty-body liveness ping to `/v1/providers/heartbeat` at the
+/// provider/instance level. It is distinct from the presence loop in
+/// `PresenceHandle::spawn_loop`, which sends the full agent state (status,
+/// model, active requests, errors) to `/v1/agents/presence` every 15s.
 fn spawn_heartbeat_loop(
     client: reqwest::Client,
     config: config::Config,
@@ -428,22 +432,45 @@ fn spawn_health_monitor(
                 _ = shutdown.cancelled() => break,
                 _ = interval.tick() => {}
             }
-            let mut llama = llama.lock().await;
-            if !llama.is_running() {
-                tracing::warn!("llama-server has stopped, attempting restart...");
+            let mut guard = llama.lock().await;
+            if !guard.is_running() {
+                let backoff = guard.next_backoff();
+                drop(guard);
+
                 presence
                     .report_degraded("llama_stopped", "llama-server process stopped unexpectedly")
                     .await;
-                if let Err(e) = llama.restart_with_backoff().await {
-                    tracing::error!("Failed to restart llama-server: {}", e);
-                    presence
-                        .report_error("llama_restart_failed", &e.to_string())
-                        .await;
-                    continue;
+                tracing::warn!("Restarting llama-server after backoff of {:?}", backoff);
+
+                tokio::select! {
+                    _ = shutdown.cancelled() => break,
+                    _ = tokio::time::sleep(backoff) => {}
                 }
-                presence.transition(AgentPresenceStatus::Ready).await;
+
+                let mut guard = llama.lock().await;
+
+                // Shutdown may have fired while we slept or waited for the lock.
+                if shutdown.is_cancelled() {
+                    break;
+                }
+
+                if let Err(e) = guard.stop().await {
+                    tracing::warn!("Error stopping llama-server before restart: {}", e);
+                }
+                match guard.start().await {
+                    Ok(()) => presence
+                        .transition(AgentPresenceStatus::Ready)
+                        .await
+                        .expect("Degraded → Ready transition must be valid"),
+                    Err(e) => {
+                        tracing::error!("Failed to restart llama-server: {}", e);
+                        presence
+                            .report_error("llama_restart_failed", &e.to_string())
+                            .await;
+                    }
+                }
             } else {
-                match llama.active_requests().await {
+                match guard.active_requests().await {
                     Ok(active) => {
                         presence.update_active_requests(active).await;
                     }

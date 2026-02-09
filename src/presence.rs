@@ -20,6 +20,34 @@ pub enum AgentPresenceStatus {
     Error,
 }
 
+impl AgentPresenceStatus {
+    /// Returns whether transitioning from `self` to `target` is valid.
+    ///
+    /// ```text
+    /// Idle         → LoadingModel, Unavailable, Error
+    /// LoadingModel → Ready, Error, Unavailable
+    /// Ready        → Serving, LoadingModel, Degraded, Error, Unavailable
+    /// Serving      → Ready, Degraded, Error, Unavailable
+    /// Degraded     → Ready, LoadingModel, Error, Unavailable
+    /// Error        → LoadingModel, Unavailable
+    /// ```
+    fn can_transition_to(&self, target: &AgentPresenceStatus) -> bool {
+        use AgentPresenceStatus::*;
+        matches!(
+            (self, target),
+            (Idle, LoadingModel | Unavailable | Error)
+                | (LoadingModel, Ready | Error | Unavailable)
+                | (
+                    Ready,
+                    Serving | LoadingModel | Degraded | Error | Unavailable
+                )
+                | (Serving, Ready | Degraded | Error | Unavailable)
+                | (Degraded, Ready | LoadingModel | Error | Unavailable)
+                | (Error, LoadingModel | Unavailable)
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentPresenceState {
     pub status: AgentPresenceStatus,
@@ -76,18 +104,29 @@ impl PresenceHandle {
     }
 
     /// Transition to a new status, clearing error fields and publishing.
-    pub async fn transition(&self, status: AgentPresenceStatus) {
+    ///
+    /// Returns an error if the transition is not allowed from the current state.
+    /// Invalid transitions indicate a programming bug in the caller.
+    pub async fn transition(&self, status: AgentPresenceStatus) -> Result<()> {
         {
             let mut s = self.state.lock().await;
+            if !s.status.can_transition_to(&status) {
+                bail!("Invalid presence transition: {:?} → {:?}", s.status, status);
+            }
             s.status = status;
             s.loading_progress_pct = None;
             s.error_code = None;
             s.error_message = None;
         }
         self.publish().await;
+        Ok(())
     }
 
     /// Report an error status with code and message, then publish.
+    ///
+    /// Unlike `transition()`, this bypasses state validation — errors can occur
+    /// from any state. Preserves `active_requests` because the error may have
+    /// occurred mid-request; dropping the count would lose track of in-flight work.
     pub async fn report_error(&self, code: &str, msg: &str) {
         {
             let mut s = self.state.lock().await;
@@ -99,6 +138,10 @@ impl PresenceHandle {
     }
 
     /// Report a degraded status with code and message, then publish.
+    ///
+    /// Unlike `transition()`, this bypasses state validation — degraded can be
+    /// entered from any state. Zeros `active_requests` because degraded means
+    /// "I'm impaired, stop routing to me" — any in-flight work is assumed lost.
     pub async fn report_degraded(&self, code: &str, msg: &str) {
         {
             let mut s = self.state.lock().await;
@@ -147,7 +190,12 @@ impl PresenceHandle {
         }
     }
 
-    /// Spawn the periodic presence heartbeat loop.
+    /// Spawn the periodic presence heartbeat loop (every 15s).
+    ///
+    /// This sends the full agent state (status, model, active requests, errors)
+    /// to `/v1/agents/presence`. It is distinct from the provider heartbeat in
+    /// `spawn_heartbeat_loop` (main.rs), which is an empty-body liveness ping
+    /// to `/v1/providers/heartbeat` every 30s at the provider/instance level.
     pub fn spawn_loop(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let handle = self.clone();
         tokio::spawn(async move {
