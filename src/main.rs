@@ -64,6 +64,10 @@ enum ModelCommands {
     Pull {
         /// HuggingFace repository ID (e.g., TheBloke/Llama-2-7B-GGUF)
         hf_repo_id: String,
+
+        /// Specific GGUF filename to download (when repo contains multiple)
+        #[arg(long)]
+        file: Option<String>,
     },
 }
 
@@ -78,7 +82,6 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let config = config::Config::load()?;
 
     match cli.command {
         Commands::Auth => {
@@ -91,11 +94,13 @@ async fn main() -> Result<()> {
             hf_repo,
             skip_verify,
         } => {
+            let config = config::Config::load()?;
             run_serve(&config, model, model_name, hf_repo, skip_verify).await?;
         }
 
         Commands::Models { command } => match command {
             ModelCommands::List => {
+                let config = config::Config::load()?;
                 let local_models = models::list_local_models(&config)?;
                 if local_models.is_empty() {
                     println!("No local models found in {}", config.model_dir.display());
@@ -112,12 +117,13 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            ModelCommands::Pull { hf_repo_id } => {
-                models::pull_model(&hf_repo_id)?;
+            ModelCommands::Pull { hf_repo_id, file } => {
+                models::pull_model(&hf_repo_id, file.as_deref()).await?;
             }
         },
 
         Commands::Status => {
+            let config = config::Config::load()?;
             println!("Agent status:");
             auth::show_auth_status();
 

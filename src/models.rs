@@ -1,6 +1,8 @@
+use std::fs;
+use std::io::Write;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::config::Config;
 
@@ -55,9 +57,146 @@ pub fn list_local_models(config: &Config) -> Result<Vec<LocalModel>> {
     Ok(models)
 }
 
-/// Pull a model from HuggingFace (not yet implemented).
-pub fn pull_model(_hf_repo_id: &str) -> Result<()> {
-    anyhow::bail!("model download not yet implemented");
+/// Download a GGUF model file from a HuggingFace repository.
+pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
+    let model_dir = crate::config::model_dir()?;
+    fs::create_dir_all(&model_dir)
+        .with_context(|| format!("Failed to create model directory {}", model_dir.display()))?;
+
+    // Fetch repo tree and filter to .gguf files
+    let entries = crate::verification::fetch_hf_tree(hf_repo_id).await?;
+    let gguf_entries: Vec<_> = entries
+        .into_iter()
+        .filter(|e| e.path.ends_with(".gguf"))
+        .collect();
+
+    if gguf_entries.is_empty() {
+        anyhow::bail!("No .gguf files found in HuggingFace repository '{}'", hf_repo_id);
+    }
+
+    // Select which file to download
+    let entry = if let Some(name) = file {
+        gguf_entries
+            .into_iter()
+            .find(|e| e.path == name)
+            .ok_or_else(|| anyhow::anyhow!("File '{}' not found in repository '{}'", name, hf_repo_id))?
+    } else if gguf_entries.len() == 1 {
+        gguf_entries.into_iter().next().unwrap()
+    } else {
+        println!("Multiple .gguf files found in '{}':", hf_repo_id);
+        for e in &gguf_entries {
+            println!("  {} ({})", e.path, format_size(e.size));
+        }
+        anyhow::bail!("Use --file <filename> to select one");
+    };
+
+    let dest = model_dir.join(&entry.path);
+    let expected_size = entry.size;
+
+    // Check if file already exists with correct size
+    if dest.exists() {
+        let existing_size = fs::metadata(&dest)
+            .with_context(|| format!("Failed to read metadata for {}", dest.display()))?
+            .len();
+        if existing_size == expected_size {
+            println!("{} already exists with correct size, skipping download", dest.display());
+            return Ok(());
+        }
+    }
+
+    let lfs = entry.lfs.as_ref();
+    let expected_sha = lfs.map(|l| {
+        l.oid
+            .strip_prefix("sha256:")
+            .unwrap_or(&l.oid)
+            .to_string()
+    });
+
+    // Download
+    let url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        hf_repo_id, entry.path
+    );
+    let partial = dest.with_extension("gguf.partial");
+
+    println!("Downloading {} ({})", entry.path, format_size(expected_size));
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "vramsply")
+        .send()
+        .await
+        .with_context(|| format!("Failed to start download from {}", url))?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Download failed: HTTP {} from {}", resp.status(), url);
+    }
+
+    let download_result = async {
+        let mut file = fs::File::create(&partial)
+            .with_context(|| format!("Failed to create {}", partial.display()))?;
+
+        let mut downloaded: u64 = 0;
+        let mut response = resp;
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .context("Failed to read download chunk")?
+        {
+            file.write_all(&chunk)
+                .with_context(|| format!("Failed to write to {}", partial.display()))?;
+            downloaded += chunk.len() as u64;
+            eprint!(
+                "\r  {}/{} ({:.0}%)",
+                format_size(downloaded),
+                format_size(expected_size),
+                downloaded as f64 / expected_size as f64 * 100.0
+            );
+        }
+        eprintln!();
+
+        // Verify size
+        if downloaded != expected_size {
+            anyhow::bail!(
+                "Size mismatch: expected {} bytes, got {} bytes",
+                expected_size,
+                downloaded
+            );
+        }
+
+        // Verify SHA-256 if LFS metadata available
+        if let Some(expected) = &expected_sha {
+            eprint!("Verifying SHA-256...");
+            let actual = crate::verification::compute_sha256(partial.to_str().ok_or_else(|| {
+                anyhow::anyhow!("Partial path is not valid UTF-8")
+            })?)?;
+            if actual != *expected {
+                anyhow::bail!(
+                    "SHA-256 mismatch: expected {}, got {}",
+                    expected,
+                    actual
+                );
+            }
+            eprintln!(" ok");
+        }
+
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+
+    if let Err(e) = download_result {
+        let _ = fs::remove_file(&partial);
+        return Err(e);
+    }
+
+    // Rename .partial → final
+    fs::rename(&partial, &dest)
+        .with_context(|| format!("Failed to rename {} → {}", partial.display(), dest.display()))?;
+
+    println!("Saved to {}", dest.display());
+    Ok(())
 }
 
 /// Format bytes into a human-readable size string.

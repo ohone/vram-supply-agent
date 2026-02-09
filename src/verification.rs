@@ -12,18 +12,16 @@ use sha2::{Digest, Sha256};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
 #[derive(Debug, Deserialize)]
-struct HfFileEntry {
-    path: String,
-    #[allow(dead_code)]
-    size: u64,
-    lfs: Option<LfsInfo>,
+pub struct HfFileEntry {
+    pub path: String,
+    pub size: u64,
+    pub lfs: Option<LfsInfo>,
 }
 
 #[derive(Debug, Deserialize)]
-struct LfsInfo {
-    oid: String,
-    #[allow(dead_code)]
-    size: u64,
+pub struct LfsInfo {
+    pub oid: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,8 +111,8 @@ pub async fn verify_model(model_path: &str, hf_repo_id: &str, skip_verify: bool)
     Ok(local_sha256)
 }
 
-/// Fetch LFS metadata for a specific file from a HuggingFace repository.
-async fn fetch_hf_file_metadata(repo_id: &str, gguf_filename: &str) -> Result<LfsInfo> {
+/// Fetch the file tree for a HuggingFace repository.
+pub async fn fetch_hf_tree(repo_id: &str) -> Result<Vec<HfFileEntry>> {
     let url = format!("https://huggingface.co/api/models/{}/tree/main", repo_id);
 
     let client = reqwest::Client::new();
@@ -150,6 +148,13 @@ async fn fetch_hf_file_metadata(repo_id: &str, gguf_filename: &str) -> Result<Lf
         .await
         .context("Failed to parse HuggingFace tree API response")?;
 
+    Ok(entries)
+}
+
+/// Fetch LFS metadata for a specific file from a HuggingFace repository.
+async fn fetch_hf_file_metadata(repo_id: &str, gguf_filename: &str) -> Result<LfsInfo> {
+    let entries = fetch_hf_tree(repo_id).await?;
+
     let entry = entries
         .into_iter()
         .find(|e| e.path == gguf_filename)
@@ -171,7 +176,7 @@ async fn fetch_hf_file_metadata(repo_id: &str, gguf_filename: &str) -> Result<Lf
 }
 
 /// Compute the SHA-256 hash of a file by streaming it in 1 MB chunks.
-fn compute_sha256(path: &str) -> Result<String> {
+pub(crate) fn compute_sha256(path: &str) -> Result<String> {
     let file = fs::File::open(path)
         .with_context(|| format!("Failed to open file for hashing: {}", path))?;
     let mut reader = std::io::BufReader::with_capacity(1024 * 1024, file);

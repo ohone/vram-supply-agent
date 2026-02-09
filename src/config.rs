@@ -32,16 +32,22 @@ where
     }
 }
 
+/// Resolve the model directory from env or the default `~/.vram-supply/models`.
+/// Works without a full Config (no API key required).
+pub fn model_dir() -> Result<PathBuf> {
+    match std::env::var("VRAM_SUPPLY_MODEL_DIR") {
+        Ok(dir) => Ok(PathBuf::from(dir)),
+        Err(_) => {
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+            Ok(home.join(".vram-supply").join("models"))
+        }
+    }
+}
+
 impl Config {
     pub fn load() -> Result<Self> {
-        let model_dir = match std::env::var("VRAM_SUPPLY_MODEL_DIR") {
-            Ok(dir) => PathBuf::from(dir),
-            Err(_) => {
-                let home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-                home.join(".vram-supply").join("models")
-            }
-        };
+        let model_dir = model_dir()?;
 
         let platform_url = env_or(
             "VRAM_SUPPLY_PLATFORM_URL",
