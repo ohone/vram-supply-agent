@@ -71,7 +71,10 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
         .collect();
 
     if gguf_entries.is_empty() {
-        anyhow::bail!("No .gguf files found in HuggingFace repository '{}'", hf_repo_id);
+        anyhow::bail!(
+            "No .gguf files found in HuggingFace repository '{}'",
+            hf_repo_id
+        );
     }
 
     // Select which file to download
@@ -79,7 +82,9 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
         gguf_entries
             .into_iter()
             .find(|e| e.path == name)
-            .ok_or_else(|| anyhow::anyhow!("File '{}' not found in repository '{}'", name, hf_repo_id))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("File '{}' not found in repository '{}'", name, hf_repo_id)
+            })?
     } else if gguf_entries.len() == 1 {
         gguf_entries.into_iter().next().unwrap()
     } else {
@@ -99,18 +104,16 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
             .with_context(|| format!("Failed to read metadata for {}", dest.display()))?
             .len();
         if existing_size == expected_size {
-            println!("{} already exists with correct size, skipping download", dest.display());
+            println!(
+                "{} already exists with correct size, skipping download",
+                dest.display()
+            );
             return Ok(());
         }
     }
 
     let lfs = entry.lfs.as_ref();
-    let expected_sha = lfs.map(|l| {
-        l.oid
-            .strip_prefix("sha256:")
-            .unwrap_or(&l.oid)
-            .to_string()
-    });
+    let expected_sha = lfs.map(|l| l.oid.strip_prefix("sha256:").unwrap_or(&l.oid).to_string());
 
     // Download
     let url = format!(
@@ -119,7 +122,11 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
     );
     let partial = dest.with_extension("gguf.partial");
 
-    println!("Downloading {} ({})", entry.path, format_size(expected_size));
+    println!(
+        "Downloading {} ({})",
+        entry.path,
+        format_size(expected_size)
+    );
 
     let client = reqwest::Client::new();
     let resp = client
@@ -169,15 +176,13 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
         // Verify SHA-256 if LFS metadata available
         if let Some(expected) = &expected_sha {
             eprint!("Verifying SHA-256...");
-            let actual = crate::verification::compute_sha256(partial.to_str().ok_or_else(|| {
-                anyhow::anyhow!("Partial path is not valid UTF-8")
-            })?)?;
+            let actual = crate::verification::compute_sha256(
+                partial
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Partial path is not valid UTF-8"))?,
+            )?;
             if actual != *expected {
-                anyhow::bail!(
-                    "SHA-256 mismatch: expected {}, got {}",
-                    expected,
-                    actual
-                );
+                anyhow::bail!("SHA-256 mismatch: expected {}, got {}", expected, actual);
             }
             eprintln!(" ok");
         }
@@ -192,8 +197,13 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
     }
 
     // Rename .partial → final
-    fs::rename(&partial, &dest)
-        .with_context(|| format!("Failed to rename {} → {}", partial.display(), dest.display()))?;
+    fs::rename(&partial, &dest).with_context(|| {
+        format!(
+            "Failed to rename {} → {}",
+            partial.display(),
+            dest.display()
+        )
+    })?;
 
     println!("Saved to {}", dest.display());
     Ok(())
