@@ -3,12 +3,12 @@ set -eu
 
 # vram.supply agent installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply-agent/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 #
 # Pin a version:
 #   VRAM_SUPPLY_AGENT_VERSION=v0.1.0 curl -fsSL ... | sh
 
-REPO="ohone/vram-supply-agent"
+REPO="ohone/vram-supply"
 INSTALL_DIR="${HOME}/.local/bin"
 BINARY_NAME="vramsply"
 

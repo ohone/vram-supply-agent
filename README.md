@@ -5,13 +5,13 @@ Connect your GPU to the [vram.supply](https://vram.supply) marketplace and earn 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply-agent/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 ```
 
 Pin a specific version:
 
 ```bash
-VRAM_SUPPLY_AGENT_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply-agent/main/install.sh | sh
+VRAM_SUPPLY_AGENT_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 ```
 
 The installer downloads the binary for your platform, verifies its SHA256 checksum, and installs it to `~/.local/bin/vramsply`.
@@ -96,8 +96,8 @@ When serving a model, the agent can verify its integrity by comparing the file's
 ## Building from source
 
 ```bash
-git clone https://github.com/ohone/vram-supply-agent.git
-cd vram-supply-agent
+git clone https://github.com/ohone/vram-supply.git
+cd vram-supply/provider-agent
 cargo build --release
 # Binary is at target/release/vramsply
 ```
