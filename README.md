@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-age
 Pin a specific version:
 
 ```bash
-VRAM_SUPPLY_AGENT_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
+VRAM_SUPPLY_AGENT_VERSION=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 ```
 
 The installer downloads the binary for your platform, verifies its SHA256 checksum, and installs it to `~/.local/bin/vramsply`.

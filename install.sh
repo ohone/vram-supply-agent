@@ -6,7 +6,7 @@ set -eu
 #   curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 #
 # Pin a version:
-#   VRAM_SUPPLY_AGENT_VERSION=v0.1.0 curl -fsSL ... | sh
+#   VRAM_SUPPLY_AGENT_VERSION=vX.Y.Z curl -fsSL ... | sh
 
 REPO="ohone/vram-supply"
 INSTALL_DIR="${HOME}/.local/bin"
