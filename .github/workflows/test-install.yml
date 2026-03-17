@@ -1,0 +1,140 @@
+name: Test installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/test-install.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/test-install.yml'
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
+
+jobs:
+  smoke:
+    name: Install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install latest release
+        run: sh install.sh
+
+      - name: Verify binary runs
+        run: ~/.local/bin/vramsply --version
+
+      - name: Verify released auth surface matches API-key flow
+        if: github.event_name == 'workflow_run'
+        run: |
+          HELP="$(~/.local/bin/vramsply auth --help)"
+          echo "${HELP}"
+          if echo "${HELP}" | grep -q "login"; then
+            echo "FAIL: stale OAuth auth commands were published" >&2
+            exit 1
+          fi
+          echo "${HELP}" | grep -q "Check API key authentication status"
+
+  pinned:
+    name: Pinned version (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve latest release tag
+        id: latest
+        run: |
+          TAG="$(curl -fsSL "https://api.github.com/repos/ohone/vram-supply-agent/releases/latest" \
+            | grep '"tag_name"' \
+            | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+          if [ -z "${TAG}" ]; then
+            echo "Error: failed to determine latest release tag" >&2
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned version
+        env:
+          VRAM_SUPPLY_AGENT_VERSION: ${{ steps.latest.outputs.tag }}
+        run: sh install.sh
+
+      - name: Verify version string
+        run: |
+          VERSION="$(~/.local/bin/vramsply --version)"
+          echo "Got: ${VERSION}"
+          echo "${VERSION}" | grep -q "${{ steps.latest.outputs.version }}"
+
+  tamper:
+    name: Tamper test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tamper and verify rejection
+        run: |
+          TMPDIR="$(mktemp -d)"
+          REPO="ohone/vram-supply-agent"
+
+          VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+            | grep '"tag_name"' \
+            | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+
+          OS="$(uname -s)"
+          ARCH="$(uname -m)"
+          case "${OS}" in
+            Linux)  OS_TARGET="unknown-linux-gnu" ;;
+            Darwin) OS_TARGET="apple-darwin" ;;
+          esac
+          case "${ARCH}" in
+            x86_64|amd64)   ARCH_TARGET="x86_64" ;;
+            aarch64|arm64)  ARCH_TARGET="aarch64" ;;
+          esac
+          TARGET="${ARCH_TARGET}-${OS_TARGET}"
+
+          curl -fSL -o "${TMPDIR}/vramsply" \
+            "https://github.com/${REPO}/releases/download/${VERSION}/vramsply-${TARGET}"
+          printf '\xff' | dd of="${TMPDIR}/vramsply" bs=1 seek=64 count=1 conv=notrunc 2>/dev/null
+
+          CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"
+          curl -fSL -o "${TMPDIR}/SHA256SUMS.txt" "${CHECKSUMS_URL}"
+
+          case "${OS}" in
+            Linux)  ACTUAL="$(sha256sum "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
+            Darwin) ACTUAL="$(shasum -a 256 "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
+          esac
+          EXPECTED="$(grep "vramsply-${TARGET}" "${TMPDIR}/SHA256SUMS.txt" | awk '{print $1}')"
+
+          if [ "${ACTUAL}" = "${EXPECTED}" ]; then
+            echo "FAIL: tampered binary matched checksum (this should not happen)" >&2
+            exit 1
+          fi
+
+          echo "PASS: tampered binary correctly has mismatched checksum"
+          echo "  Expected: ${EXPECTED}"
+          echo "  Actual:   ${ACTUAL}"
+          rm -rf "${TMPDIR}"
