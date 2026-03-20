@@ -25,7 +25,6 @@ struct MessageContext<'a> {
     semaphore: &'a Arc<Semaphore>,
     provider: &'a str,
     default_model: &'a str,
-    default_budget: f64,
     presence: &'a PresenceHandle,
     shutdown: &'a CancellationToken,
 }
@@ -63,7 +62,7 @@ enum IncomingMessage {
         request_id: String,
         prompt: String,
         model: Option<String>,
-        max_budget_usd: Option<f64>,
+        max_budget_usd: f64,
     },
     Ping,
 }
@@ -193,7 +192,6 @@ pub async fn run_relay(
                             semaphore: &semaphore,
                             provider,
                             default_model: model,
-                            default_budget: max_budget_usd,
                             presence: &presence,
                             shutdown: &shutdown,
                         };
@@ -276,7 +274,6 @@ async fn handle_incoming_message(text: &str, ctx: &MessageContext<'_>) -> Result
             max_budget_usd,
         } => {
             let model = model.as_deref().unwrap_or(ctx.default_model);
-            let budget = max_budget_usd.unwrap_or(ctx.default_budget);
 
             // Try to acquire semaphore permit for concurrency control
             match ctx.semaphore.clone().try_acquire_owned() {
@@ -298,7 +295,7 @@ async fn handle_incoming_message(text: &str, ctx: &MessageContext<'_>) -> Result
                         provider: ctx.provider.to_string(),
                         prompt,
                         model: model.to_string(),
-                        max_budget_usd: budget,
+                        max_budget_usd,
                         message_tx: ctx.message_tx.clone(),
                         _permit: permit,
                         presence: ctx.presence.clone(),
