@@ -65,7 +65,7 @@ Earn by selling unused capacity from supported coding subscriptions.
 export VRAM_SUPPLY_API_KEY=your-api-key
 
 # 2. Start selling Claude Code quota
-vramsupply sell-quota
+vramsupply sell-quota claude
 ```
 
 #### OpenAI Codex
@@ -78,7 +78,7 @@ export VRAM_SUPPLY_API_KEY=your-api-key
 vramsupply connect openai
 
 # 3. Start sell-quota mode with the Codex backend
-vramsupply sell-quota --provider openai-codex
+vramsupply sell-quota codex
 ```
 
 ### Configuration
@@ -103,9 +103,9 @@ vramsupply sell-quota --provider openai-codex
 | `vramsupply serve --model <path> --hf-repo <repo_id>` | Serve with model integrity verification |
 | `vramsupply serve --model <path> --skip-verify` | Serve without model verification |
 | `vramsupply serve --input-price 50 --output-price 150` | Serve with custom pricing (cents per million tokens) |
-| `vramsupply sell-quota` | Start sell-quota mode with Claude Code |
-| `vramsupply sell-quota --provider openai-codex` | Start sell-quota mode with OpenAI Codex |
-| `vramsupply sell-quota --input-price 300 --output-price 1500` | Sell quota with custom pricing |
+| `vramsupply sell-quota claude` | Start sell-quota mode with Claude Code |
+| `vramsupply sell-quota codex` | Start sell-quota mode with OpenAI Codex |
+| `vramsupply sell-quota claude --input-price 300 --output-price 1500` | Sell quota with custom pricing |
 | `vramsupply models list` | List locally available GGUF models |
 | `vramsupply models pull <hf_repo_id>` | Download a model from HuggingFace |
 | `vramsupply status` | Show agent status |

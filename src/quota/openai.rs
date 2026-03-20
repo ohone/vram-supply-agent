@@ -135,7 +135,7 @@ pub async fn connect_openai(client: &reqwest::Client) -> Result<()> {
         "Connected OpenAI Codex. Stored credentials in {}",
         connection_path()?.display()
     );
-    println!("Then run: vramsupply sell-quota --provider openai-codex");
+    println!("Then run: vramsupply sell-quota codex");
     Ok(())
 }
 

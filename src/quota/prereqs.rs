@@ -66,7 +66,7 @@ pub fn print_prereq_status(status: &PrereqStatus) {
         }
 
         if !all_ok(status) {
-            println!("  Then re-run: vramsupply sell-quota --provider openai-codex");
+            println!("  Then re-run: vramsupply sell-quota codex");
             println!();
         }
         return;
@@ -116,7 +116,7 @@ pub fn print_prereq_status(status: &PrereqStatus) {
     }
 
     if !all_ok(status) {
-        println!("  Then re-run: vramsupply sell-quota");
+        println!("  Then re-run: vramsupply sell-quota claude");
         println!();
     }
 }

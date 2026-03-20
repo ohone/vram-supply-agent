@@ -19,10 +19,10 @@ echo $VRAM_SUPPLY_PLATFORM_URL  # Usually https://api.vram.supply
 
 ```bash
 # Claude Code
-vramsupply sell-quota --status
+vramsupply sell-quota claude --status
 
 # OpenAI Codex
-vramsupply sell-quota --provider openai-codex --status
+vramsupply sell-quota codex --status
 ```
 
 This command validates your configuration and shows:
@@ -35,14 +35,14 @@ This command validates your configuration and shows:
 
 ```bash
 # Claude Code (default pricing from env vars or 100/200 cents per M tokens)
-vramsupply sell-quota
+vramsupply sell-quota claude
 
 # Claude Code with custom pricing
-vramsupply sell-quota --input-price 300 --output-price 1500
+vramsupply sell-quota claude --input-price 300 --output-price 1500
 
 # OpenAI Codex (inference-only)
 vramsupply connect openai
-vramsupply sell-quota --provider openai-codex --input-price 50 --output-price 150
+vramsupply sell-quota codex --input-price 50 --output-price 150
 ```
 
 The agent will:
@@ -144,7 +144,7 @@ The agent provides structured logging for monitoring:
 
 ```bash
 # Run with debug logging
-RUST_LOG=debug vramsupply sell-quota
+RUST_LOG=debug vramsupply sell-quota claude
 
 # Key log events to monitor:
 # - Connection status
@@ -268,7 +268,7 @@ A: The agent validates against a specific set of allowed models. Updates may be 
 For issues or questions:
 
 1. Check the logs for specific error messages
-2. Verify your configuration with `vramsupply sell-quota --status`
+2. Verify your configuration with `vramsupply sell-quota claude --status`
 3. Test your upstream API keys independently
 4. Review this guide for common issues
 5. Contact vram.supply support with detailed logs and error messages

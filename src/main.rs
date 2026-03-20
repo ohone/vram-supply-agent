@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use presence::{AgentPresenceStatus, PresenceHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -24,6 +24,21 @@ use tokio_util::sync::CancellationToken;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum SellQuotaProviderArg {
+    Claude,
+    Codex,
+}
+
+impl SellQuotaProviderArg {
+    fn backend_name(self) -> &'static str {
+        match self {
+            Self::Claude => "claude-code",
+            Self::Codex => "openai-codex",
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -66,10 +81,11 @@ enum Commands {
         provider: String,
     },
     /// Sell unused subscription quota via the vram.supply marketplace
+    #[command(arg_required_else_help = true, after_help = "Examples:\n  vramsupply sell-quota claude --status\n  vramsupply sell-quota claude --input-price 300 --output-price 1500\n  vramsupply connect openai\n  vramsupply sell-quota codex --status")]
     SellQuota {
-        /// Provider backend to use (claude-code or openai-codex)
-        #[arg(long, default_value = "claude-code")]
-        provider: String,
+        /// Subscription backend to sell (`claude` or `codex`)
+        #[arg(value_enum, value_name = "PROVIDER")]
+        provider: SellQuotaProviderArg,
 
         /// Maximum concurrent sessions
         #[arg(long, default_value = "1")]
@@ -171,6 +187,7 @@ async fn main() -> Result<()> {
             input_price,
             output_price,
         } => {
+            let provider = provider.backend_name();
             let mut config = config::Config::load()?;
             if let Some(p) = input_price {
                 config.input_price_per_million = p;
@@ -179,12 +196,12 @@ async fn main() -> Result<()> {
                 config.output_price_per_million = p;
             }
             if status {
-                quota::handle_sell_quota_status(&config, &provider).await?;
+                quota::handle_sell_quota_status(&config, provider).await?;
             } else {
                 quota::handle_sell_quota(
                     &http_client,
                     &config,
-                    &provider,
+                    provider,
                     max_concurrent,
                     max_budget_usd,
                     &model,
