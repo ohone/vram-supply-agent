@@ -23,9 +23,9 @@ struct CodexUsage {
 
 impl CodexSession {
     /// Start a Codex inference request.
-    pub async fn start(prompt: &str, model: &str) -> Result<Self> {
+    pub async fn start(client: &reqwest::Client, prompt: &str, model: &str) -> Result<Self> {
         let connection = openai::load_connection()
-            .context("OpenAI connection not found. Run: vramsply connect openai")?;
+            .context("OpenAI connection not found. Run: vramsupply connect openai")?;
 
         // Build a messages array from the prompt string
         let messages = vec![serde_json::json!({
@@ -44,7 +44,6 @@ impl CodexSession {
 
         debug!("Starting Codex session: model={}", model);
 
-        let client = reqwest::Client::new();
         let response = client
             .post(CODEX_API_URL)
             .header(
@@ -54,7 +53,7 @@ impl CodexSession {
             .header("chatgpt-account-id", &connection.chatgpt_account_id)
             .header("Content-Type", "application/json")
             .header("OpenAI-Beta", "responses=experimental")
-            .header("originator", "vramsply")
+            .header("originator", "vramsupply")
             .json(&body)
             .send()
             .await

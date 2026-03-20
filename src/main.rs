@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[command(
-    name = "vramsply",
+    name = "vramsupply",
     about = "vram.supply provider agent — connect your model inference node to the marketplace",
     version
 )]
@@ -131,6 +131,9 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Shared HTTP client for connection pooling across all subsystems
+    let http_client = reqwest::Client::new();
+
     match cli.command {
         Commands::Auth => {
             auth::show_auth_status();
@@ -152,11 +155,11 @@ async fn main() -> Result<()> {
             if let Some(p) = output_price {
                 config.output_price_per_million = p;
             }
-            run_serve(&config, model, quant, model_name, hf_repo, skip_verify).await?;
+            run_serve(&http_client, &config, model, quant, model_name, hf_repo, skip_verify).await?;
         }
 
         Commands::Connect { provider } => {
-            quota::handle_connect(&provider).await?;
+            quota::handle_connect(&http_client, &provider).await?;
         }
 
         Commands::SellQuota {
@@ -179,6 +182,7 @@ async fn main() -> Result<()> {
                 quota::handle_sell_quota_status(&config, &provider).await?;
             } else {
                 quota::handle_sell_quota(
+                    &http_client,
                     &config,
                     &provider,
                     max_concurrent,
@@ -195,7 +199,7 @@ async fn main() -> Result<()> {
                 let local_models = models::list_local_models(&config)?;
                 if local_models.is_empty() {
                     println!("No local models found in {}", config.model_dir.display());
-                    println!("Download models with: vramsply models pull <hf_repo_id>");
+                    println!("Download models with: vramsupply models pull <hf_repo_id>");
                 } else {
                     println!("Local models ({}):", config.model_dir.display());
                     for m in &local_models {
@@ -209,7 +213,7 @@ async fn main() -> Result<()> {
                 }
             }
             ModelCommands::Pull { hf_repo_id, file } => {
-                models::pull_model(&hf_repo_id, file.as_deref()).await?;
+                models::pull_model(&http_client, &hf_repo_id, file.as_deref()).await?;
             }
         },
 
@@ -245,6 +249,7 @@ struct RegisterResponse {
 }
 
 async fn run_serve(
+    client: &reqwest::Client,
     config: &config::Config,
     model_arg: Option<String>,
     quant: Option<String>,
@@ -256,16 +261,15 @@ async fn run_serve(
 
     let token = Arc::new(config.api_key.clone());
     let identity = identity::load_or_create_identity()?;
-    let client = reqwest::Client::new();
 
     // Determine which model to serve
     let resolved = match model_arg {
-        Some(m) => models::resolve_model(config, &m, quant.as_deref()).await?,
+        Some(m) => models::resolve_model(client, config, &m, quant.as_deref()).await?,
         None => {
             let local = models::list_local_models(config)?;
             if local.is_empty() {
                 anyhow::bail!(
-                    "No models found. Specify --model or download one with: vramsply models pull <hf_repo_id>"
+                    "No models found. Specify --model or download one with: vramsupply models pull <hf_repo_id>"
                 );
             }
             if local.len() > 1 {
@@ -287,17 +291,17 @@ async fn run_serve(
 
     // Verify model integrity
     let model_sha256 = if skip_verify {
-        verification::verify_model(model_path, "", true).await?
+        verification::verify_model(client, model_path, "", true).await?
     } else {
         match effective_hf_repo.as_ref() {
             Some(hf_repo_id) => {
-                let sha = verification::verify_model(model_path, hf_repo_id, false).await?;
+                let sha = verification::verify_model(client, model_path, hf_repo_id, false).await?;
                 println!("Model verified: {} (SHA-256: {})", hf_repo_id, sha);
                 sha
             }
             None => {
                 tracing::info!("No --hf-repo provided and model was not resolved from a canonical ID; skipping verification");
-                verification::verify_model(model_path, "", true).await?
+                verification::verify_model(client, model_path, "", true).await?
             }
         }
     };
@@ -329,6 +333,7 @@ async fn run_serve(
         config.llama_server_path.clone(),
         config.gpu_layers,
         config.context_length_offered,
+        client.clone(),
     )));
     if let Err(e) = llama.lock().await.start().await {
         presence
@@ -347,7 +352,7 @@ async fn run_serve(
         Some(model_sha256)
     };
     let reg = register_with_platform(
-        &client,
+        client,
         config,
         &token,
         &model_name,

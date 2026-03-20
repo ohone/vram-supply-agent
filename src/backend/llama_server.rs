@@ -31,6 +31,7 @@ impl LlamaServer {
         llama_server_path: String,
         gpu_layers: u32,
         context_length: u32,
+        client: reqwest::Client,
     ) -> Self {
         LlamaServer {
             child: None,
@@ -40,7 +41,7 @@ impl LlamaServer {
             gpu_layers,
             context_length,
             restart_backoff: INITIAL_RESTART_BACKOFF,
-            client: reqwest::Client::new(),
+            client,
         }
     }
 

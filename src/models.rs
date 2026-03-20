@@ -64,6 +64,7 @@ fn collect_gguf_files(dir: &Path, models: &mut Vec<LocalModel>) -> Result<()> {
 /// Handles partial downloads, size verification, SHA-256 verification (when
 /// LFS metadata is available), and cleanup on failure.
 pub async fn download_hf_file(
+    client: &reqwest::Client,
     hf_repo_id: &str,
     entry: &crate::verification::HfFileEntry,
     dest_path: &Path,
@@ -105,10 +106,9 @@ pub async fn download_hf_file(
         format_size(expected_size)
     );
 
-    let client = reqwest::Client::new();
     let resp = client
         .get(&url)
-        .header("User-Agent", "vramsply")
+        .header("User-Agent", "vramsupply")
         .send()
         .await
         .with_context(|| format!("Failed to start download from {}", url))?;
@@ -184,13 +184,13 @@ pub async fn download_hf_file(
 }
 
 /// Download a GGUF model file from a HuggingFace repository.
-pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
+pub async fn pull_model(client: &reqwest::Client, hf_repo_id: &str, file: Option<&str>) -> Result<()> {
     let model_dir = crate::config::model_dir()?;
     fs::create_dir_all(&model_dir)
         .with_context(|| format!("Failed to create model directory {}", model_dir.display()))?;
 
     // Fetch repo tree and filter to .gguf files
-    let entries = crate::verification::fetch_hf_tree(hf_repo_id).await?;
+    let entries = crate::verification::fetch_hf_tree(client, hf_repo_id).await?;
     let gguf_entries: Vec<_> = entries
         .into_iter()
         .filter(|e| e.path.ends_with(".gguf"))
@@ -222,7 +222,7 @@ pub async fn pull_model(hf_repo_id: &str, file: Option<&str>) -> Result<()> {
     };
 
     let dest = model_dir.join(&entry.path);
-    download_hf_file(hf_repo_id, &entry, &dest).await
+    download_hf_file(client, hf_repo_id, &entry, &dest).await
 }
 
 /// Format bytes into a human-readable size string.
@@ -452,8 +452,8 @@ fn is_multipart_file(filename: &str) -> bool {
 }
 
 /// Fetch the file tree for a HuggingFace repo (thin wrapper for readability).
-async fn fetch_gguf_tree(repo_id: &str) -> Result<Vec<crate::verification::HfFileEntry>> {
-    crate::verification::fetch_hf_tree(repo_id).await
+async fn fetch_gguf_tree(client: &reqwest::Client, repo_id: &str) -> Result<Vec<crate::verification::HfFileEntry>> {
+    crate::verification::fetch_hf_tree(client, repo_id).await
 }
 
 /// Search HuggingFace for the best GGUF repo matching a canonical model ID.
@@ -461,13 +461,13 @@ async fn fetch_gguf_tree(repo_id: &str) -> Result<Vec<crate::verification::HfFil
 /// Checks the canonical repo first, then searches for community GGUF repos.
 /// Ranks by normalized name match (exact first), rejects derivatives, and
 /// uses downloads as a tiebreaker.
-pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
+pub async fn search_gguf_repo(client: &reqwest::Client, canonical_id: &str) -> Result<String> {
     let (_org, name) = canonical_id
         .split_once('/')
         .ok_or_else(|| anyhow::anyhow!("Invalid model ID '{}': expected org/name", canonical_id))?;
 
     // 1. Check canonical repo tree for GGUFs
-    match crate::verification::fetch_hf_tree(canonical_id).await {
+    match crate::verification::fetch_hf_tree(client, canonical_id).await {
         Ok(entries) => {
             let has_gguf = entries.iter().any(|e| e.path.ends_with(".gguf"));
             if has_gguf {
@@ -482,7 +482,6 @@ pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
 
     // 2. Search HuggingFace for GGUF repos
     let canonical_norm = normalize_for_comparison(name);
-    let client = reqwest::Client::new();
 
     let search_terms = [format!("{}-GGUF", name), name.to_string()];
 
@@ -494,7 +493,7 @@ pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
         );
         match client
             .get(&url)
-            .header("User-Agent", "vramsply")
+            .header("User-Agent", "vramsupply")
             .send()
             .await
         {
@@ -508,7 +507,11 @@ pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
                 }
             }
             Ok(resp) => {
-                tracing::debug!("HuggingFace search for '{}' returned HTTP {}", term, resp.status());
+                tracing::debug!(
+                    "HuggingFace search for '{}' returned HTTP {}",
+                    term,
+                    resp.status()
+                );
             }
             Err(e) => {
                 tracing::debug!("HuggingFace search for '{}' failed: {}", term, e);
@@ -584,8 +587,8 @@ pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
 /// Returns the filename (not a full path) of the matching GGUF file.
 /// Errors if the quant resolves to a multipart artifact or is not found.
 #[allow(dead_code)]
-pub async fn find_quant_file(gguf_repo: &str, quant: &str) -> Result<String> {
-    let entries = fetch_gguf_tree(gguf_repo).await?;
+pub async fn find_quant_file(client: &reqwest::Client, gguf_repo: &str, quant: &str) -> Result<String> {
+    let entries = fetch_gguf_tree(client, gguf_repo).await?;
     find_quant_file_in_entries(&entries, gguf_repo, quant)
 }
 
@@ -661,6 +664,7 @@ fn find_quant_file_in_entries(
 /// For canonical IDs, resolves the GGUF repo via HuggingFace search, finds
 /// the quant-specific file, and downloads it if needed.
 pub async fn resolve_model(
+    client: &reqwest::Client,
     config: &Config,
     name_or_path: &str,
     quant: Option<&str>,
@@ -691,7 +695,7 @@ pub async fn resolve_model(
         let quant = quant.ok_or_else(|| {
             anyhow::anyhow!(
                 "--quant is required when serving by model ID.\n\
-                 Example: vramsply serve --model \"{}\" --quant Q4_K_M",
+                 Example: vramsupply serve --model \"{}\" --quant Q4_K_M",
                 name_or_path
             )
         })?;
@@ -720,10 +724,10 @@ pub async fn resolve_model(
         }
 
         // Resolve GGUF repo and file
-        let gguf_repo = search_gguf_repo(name_or_path).await?;
+        let gguf_repo = search_gguf_repo(client, name_or_path).await?;
 
         // Fetch tree once and use it for both quant matching and download
-        let entries = fetch_gguf_tree(&gguf_repo).await?;
+        let entries = fetch_gguf_tree(client, &gguf_repo).await?;
         let gguf_file = find_quant_file_in_entries(&entries, &gguf_repo, quant)?;
         let entry = entries
             .iter()
@@ -737,7 +741,7 @@ pub async fn resolve_model(
             })?;
 
         let dest = config.model_dir.join(name_or_path).join(&gguf_file);
-        download_hf_file(&gguf_repo, entry, &dest).await?;
+        download_hf_file(client, &gguf_repo, entry, &dest).await?;
 
         return Ok(ResolvedModel {
             path: dest.to_string_lossy().to_string(),

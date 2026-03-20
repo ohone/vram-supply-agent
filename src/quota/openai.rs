@@ -73,7 +73,7 @@ fn save_connection(connection: &OpenAiConnection) -> Result<()> {
     Ok(())
 }
 
-pub async fn connect_openai() -> Result<()> {
+pub async fn connect_openai(client: &reqwest::Client) -> Result<()> {
     let state = Uuid::new_v4().to_string();
     let code_verifier = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -103,7 +103,6 @@ pub async fn connect_openai() -> Result<()> {
         bail!("OAuth state mismatch; aborting")
     }
 
-    let client = reqwest::Client::new();
     let token = client
         .post(OPENAI_TOKEN_URL)
         .form(&[
@@ -136,7 +135,7 @@ pub async fn connect_openai() -> Result<()> {
         "Connected OpenAI Codex. Stored credentials in {}",
         connection_path()?.display()
     );
-    println!("Then run: vramsply sell-quota --provider openai-codex");
+    println!("Then run: vramsupply sell-quota --provider openai-codex");
     Ok(())
 }
 

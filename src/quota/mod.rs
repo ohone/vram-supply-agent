@@ -13,11 +13,11 @@ use crate::config::Config;
 
 pub use prereqs::{check_prerequisites, print_prereq_status};
 
-pub async fn handle_connect(provider: &str) -> Result<()> {
+pub async fn handle_connect(client: &reqwest::Client, provider: &str) -> Result<()> {
     match provider {
-        "openai" | "openai-codex" => openai::connect_openai().await,
+        "openai" | "openai-codex" => openai::connect_openai(client).await,
         other => anyhow::bail!(
-            "Unsupported provider '{}'. Try: vramsply connect openai",
+            "Unsupported provider '{}'. Try: vramsupply connect openai",
             other
         ),
     }
@@ -38,6 +38,7 @@ pub async fn handle_sell_quota_status(_config: &Config, provider: &str) -> Resul
 
 /// Handle the sell-quota command
 pub async fn handle_sell_quota(
+    client: &reqwest::Client,
     config: &Config,
     provider: &str,
     max_concurrent: u32,
@@ -69,6 +70,7 @@ pub async fn handle_sell_quota(
     });
 
     relay::run_relay(
+        client,
         config,
         provider,
         max_concurrent,

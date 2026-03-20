@@ -38,7 +38,7 @@ struct VerificationCacheEntry {
 ///
 /// Returns the SHA-256 hex string of the model, or `"unverified"` if
 /// `skip_verify` is true.
-pub async fn verify_model(model_path: &str, hf_repo_id: &str, skip_verify: bool) -> Result<String> {
+pub async fn verify_model(client: &reqwest::Client, model_path: &str, hf_repo_id: &str, skip_verify: bool) -> Result<String> {
     if skip_verify {
         return Ok("unverified".to_string());
     }
@@ -67,7 +67,7 @@ pub async fn verify_model(model_path: &str, hf_repo_id: &str, skip_verify: bool)
 
     // Fetch expected hash from HuggingFace
     let gguf_filename = crate::models::gguf_filename(model_path)?;
-    let lfs_info = fetch_hf_file_metadata(hf_repo_id, &gguf_filename).await?;
+    let lfs_info = fetch_hf_file_metadata(client, hf_repo_id, &gguf_filename).await?;
 
     // HuggingFace LFS oid may be prefixed with "sha256:"
     let expected_hash = lfs_info
@@ -113,13 +113,12 @@ pub async fn verify_model(model_path: &str, hf_repo_id: &str, skip_verify: bool)
 }
 
 /// Fetch the file tree for a HuggingFace repository.
-pub async fn fetch_hf_tree(repo_id: &str) -> Result<Vec<HfFileEntry>> {
+pub async fn fetch_hf_tree(client: &reqwest::Client, repo_id: &str) -> Result<Vec<HfFileEntry>> {
     let url = format!("https://huggingface.co/api/models/{}/tree/main", repo_id);
 
-    let client = reqwest::Client::new();
     let resp = client
         .get(&url)
-        .header("User-Agent", "vramsply")
+        .header("User-Agent", "vramsupply")
         .send()
         .await
         .with_context(|| format!("Failed to fetch HuggingFace tree API for '{}'", repo_id))?;
@@ -153,8 +152,8 @@ pub async fn fetch_hf_tree(repo_id: &str) -> Result<Vec<HfFileEntry>> {
 }
 
 /// Fetch LFS metadata for a specific file from a HuggingFace repository.
-async fn fetch_hf_file_metadata(repo_id: &str, gguf_filename: &str) -> Result<LfsInfo> {
-    let entries = fetch_hf_tree(repo_id).await?;
+async fn fetch_hf_file_metadata(client: &reqwest::Client, repo_id: &str, gguf_filename: &str) -> Result<LfsInfo> {
+    let entries = fetch_hf_tree(client, repo_id).await?;
 
     let entry = entries
         .into_iter()
@@ -304,7 +303,8 @@ mod tests {
     #[test]
     fn test_verify_model_skip() {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(verify_model("/nonexistent", "", true));
+        let client = reqwest::Client::new();
+        let result = rt.block_on(verify_model(&client, "/nonexistent", "", true));
         assert_eq!(result.unwrap(), "unverified");
     }
 
@@ -335,8 +335,10 @@ mod tests {
     #[ignore]
     fn test_fetch_hf_metadata_real() {
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
         let lfs = rt
             .block_on(fetch_hf_file_metadata(
+                &client,
                 "CompendiumLabs/bge-small-en-v1.5-gguf",
                 "bge-small-en-v1.5-q4_k_m.gguf",
             ))
@@ -352,8 +354,10 @@ mod tests {
     #[ignore]
     fn test_fetch_hf_metadata_bad_repo() {
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
         let err = rt
             .block_on(fetch_hf_file_metadata(
+                &client,
                 "nonexistent-org/nonexistent-repo-xyz-12345",
                 "model.gguf",
             ))
@@ -370,8 +374,10 @@ mod tests {
     #[ignore]
     fn test_fetch_hf_metadata_wrong_file() {
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
         let err = rt
             .block_on(fetch_hf_file_metadata(
+                &client,
                 "CompendiumLabs/bge-small-en-v1.5-gguf",
                 "nonexistent-file.gguf",
             ))
@@ -394,8 +400,10 @@ mod tests {
             return;
         }
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
         let sha = rt
             .block_on(verify_model(
+                &client,
                 model_path,
                 "CompendiumLabs/bge-small-en-v1.5-gguf",
                 false,
@@ -417,10 +425,12 @@ mod tests {
             return;
         }
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
         // Use a repo that has a file with the same name but different content
         // For now, just verify that passing a repo without this file fails
         let err = rt
             .block_on(verify_model(
+                &client,
                 model_path,
                 "ggml-org/gte-small-Q8_0-GGUF",
                 false,

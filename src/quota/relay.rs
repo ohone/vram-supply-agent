@@ -23,6 +23,7 @@ use super::session::ClaudeSession;
 struct MessageContext<'a> {
     message_tx: &'a mpsc::UnboundedSender<OutgoingMessage>,
     semaphore: &'a Arc<Semaphore>,
+    client: &'a reqwest::Client,
     provider: &'a str,
     default_model: &'a str,
     presence: &'a PresenceHandle,
@@ -75,6 +76,7 @@ struct UsageStats {
 }
 
 pub async fn run_relay(
+    client: &reqwest::Client,
     config: &Config,
     provider: &str,
     max_concurrent: u32,
@@ -83,7 +85,6 @@ pub async fn run_relay(
     shutdown: CancellationToken,
 ) -> Result<()> {
     let identity = identity::load_or_create_identity()?;
-    let client = reqwest::Client::new();
     let token = Arc::new(config.api_key.clone());
 
     // Create presence handle for quota mode
@@ -98,7 +99,7 @@ pub async fn run_relay(
     // Start presence heartbeat loop
     let presence_handle = presence.spawn_loop(shutdown.clone());
 
-    register_provider(&client, config, &token, provider, model, max_concurrent).await?;
+    register_provider(client, config, &token, provider, model, max_concurrent).await?;
 
     // Connect to platform WebSocket
     let ws_base = config
@@ -190,6 +191,7 @@ pub async fn run_relay(
                         let ctx = MessageContext {
                             message_tx: &message_tx,
                             semaphore: &semaphore,
+                            client,
                             provider,
                             default_model: model,
                             presence: &presence,
@@ -237,7 +239,7 @@ pub async fn run_relay(
         }
     }
 
-    let _ = deregister_provider(&client, config, &token, provider).await;
+    let _ = deregister_provider(client, config, &token, provider).await;
 
     // Cleanup
     presence
@@ -296,6 +298,7 @@ async fn handle_incoming_message(text: &str, ctx: &MessageContext<'_>) -> Result
                         prompt,
                         model: model.to_string(),
                         max_budget_usd,
+                        client: ctx.client.clone(),
                         message_tx: ctx.message_tx.clone(),
                         _permit: permit,
                         presence: ctx.presence.clone(),
@@ -328,6 +331,7 @@ struct InferenceContext {
     prompt: String,
     model: String,
     max_budget_usd: f64,
+    client: reqwest::Client,
     message_tx: mpsc::UnboundedSender<OutgoingMessage>,
     _permit: tokio::sync::OwnedSemaphorePermit,
     presence: PresenceHandle,
@@ -341,6 +345,7 @@ async fn handle_inference_request(ctx: InferenceContext) {
         prompt,
         model,
         max_budget_usd,
+        client,
         message_tx,
         _permit,
         presence,
@@ -390,7 +395,7 @@ async fn handle_inference_request(ctx: InferenceContext) {
 
             "openai-codex" => {
                 // OpenAI Codex: inference-only, no sandbox, no tool use
-                let mut session = CodexSession::start(&prompt, &model).await?;
+                let mut session = CodexSession::start(&client, &prompt, &model).await?;
 
                 let mut usage = UsageStats {
                     input_tokens: 0,
