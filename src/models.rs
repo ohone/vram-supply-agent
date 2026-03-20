@@ -507,7 +507,12 @@ pub async fn search_gguf_repo(canonical_id: &str) -> Result<String> {
                     }
                 }
             }
-            _ => {}
+            Ok(resp) => {
+                tracing::debug!("HuggingFace search for '{}' returned HTTP {}", term, resp.status());
+            }
+            Err(e) => {
+                tracing::debug!("HuggingFace search for '{}' failed: {}", term, e);
+            }
         }
         // If we already have exact matches after first search, skip fallback
         if all_candidates.iter().any(|c| {

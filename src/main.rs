@@ -254,7 +254,7 @@ async fn run_serve(
 ) -> Result<()> {
     let shutdown = CancellationToken::new();
 
-    let token = Arc::new(tokio::sync::Mutex::new(config.api_key.clone()));
+    let token = Arc::new(config.api_key.clone());
     let identity = identity::load_or_create_identity()?;
     let client = reqwest::Client::new();
 
@@ -402,10 +402,9 @@ async fn run_serve(
         .expect("Any → Unavailable transition must be valid");
 
     // Deregister (best-effort on shutdown path — log but don't propagate)
-    let current_token = token.lock().await.clone();
     match client
         .delete(&deregister_url)
-        .header("Authorization", format!("Bearer {}", current_token))
+        .header("Authorization", format!("Bearer {}", &*token))
         .send()
         .await
     {
@@ -434,7 +433,7 @@ async fn run_serve(
 async fn register_with_platform(
     client: &reqwest::Client,
     config: &config::Config,
-    token: &Arc<tokio::sync::Mutex<String>>,
+    token: &Arc<String>,
     model_name: &str,
     model_sha256: Option<String>,
     presence: &PresenceHandle,
@@ -450,10 +449,9 @@ async fn register_with_platform(
         model_sha256,
     };
 
-    let reg_token = token.lock().await.clone();
     let res = client
         .post(&register_url)
-        .header("Authorization", format!("Bearer {}", reg_token))
+        .header("Authorization", format!("Bearer {}", token))
         .json(&register_body)
         .send()
         .await
@@ -497,7 +495,7 @@ async fn register_with_platform(
 fn spawn_heartbeat_loop(
     client: reqwest::Client,
     config: config::Config,
-    token: Arc<tokio::sync::Mutex<String>>,
+    token: Arc<String>,
     shutdown: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     let heartbeat_url = format!("{}/v1/providers/heartbeat", config.platform_url);
@@ -509,10 +507,9 @@ fn spawn_heartbeat_loop(
                 _ = interval.tick() => {}
             }
 
-            let current_token = token.lock().await.clone();
             let res = client
                 .post(&heartbeat_url)
-                .header("Authorization", format!("Bearer {}", current_token))
+                .header("Authorization", format!("Bearer {}", &*token))
                 .send()
                 .await;
             match res {

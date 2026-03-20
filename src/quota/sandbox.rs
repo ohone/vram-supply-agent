@@ -54,11 +54,16 @@ impl Drop for SandboxSession {
     fn drop(&mut self) {
         if self.tmpdir.exists() {
             let tmpdir = self.tmpdir.clone();
-            tokio::spawn(async move {
-                if let Err(e) = fs::remove_dir_all(&tmpdir).await {
-                    tracing::warn!("Failed to cleanup tmpdir in Drop: {}", e);
-                }
-            });
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    if let Err(e) = fs::remove_dir_all(&tmpdir).await {
+                        tracing::warn!("Failed to cleanup tmpdir in Drop: {}", e);
+                    }
+                });
+            } else {
+                // No async runtime available; clean up synchronously.
+                let _ = std::fs::remove_dir_all(&tmpdir);
+            }
         }
     }
 }

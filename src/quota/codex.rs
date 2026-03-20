@@ -97,7 +97,7 @@ impl CodexSession {
             // Process complete lines
             while let Some(newline_pos) = self.buffer.find('\n') {
                 let line = self.buffer[..newline_pos].to_string();
-                self.buffer = self.buffer[newline_pos + 1..].to_string();
+                self.buffer.drain(..=newline_pos);
 
                 let line = line.trim();
                 if line.is_empty() || !line.starts_with("data: ") {

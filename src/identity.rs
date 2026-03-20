@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ fn detect_hostname() -> Option<String> {
     None
 }
 
-fn read_agent_uid(path: &PathBuf) -> Result<Option<String>> {
+fn read_agent_uid(path: &Path) -> Result<Option<String>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -49,7 +49,7 @@ fn read_agent_uid(path: &PathBuf) -> Result<Option<String>> {
     Ok(Some(data.agent_uid))
 }
 
-fn write_agent_uid(path: &PathBuf, agent_uid: &str) -> Result<()> {
+fn write_agent_uid(path: &Path, agent_uid: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed creating directory {}", parent.display()))?;

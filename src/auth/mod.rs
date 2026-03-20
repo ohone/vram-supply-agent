@@ -1,7 +1,7 @@
 pub fn show_auth_status() {
     match std::env::var("VRAM_SUPPLY_API_KEY") {
         Ok(key) if !key.is_empty() => {
-            let prefix = if key.len() > 7 { &key[..7] } else { &key };
+            let prefix = if key.len() > 4 { &key[..4] } else { "****" };
             println!("API key configured: {}...", prefix);
         }
         _ => {

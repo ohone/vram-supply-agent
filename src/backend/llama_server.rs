@@ -21,6 +21,7 @@ pub struct LlamaServer {
     gpu_layers: u32,
     context_length: u32,
     restart_backoff: Duration,
+    client: reqwest::Client,
 }
 
 impl LlamaServer {
@@ -39,17 +40,14 @@ impl LlamaServer {
             gpu_layers,
             context_length,
             restart_backoff: INITIAL_RESTART_BACKOFF,
+            client: reqwest::Client::new(),
         }
     }
 
     /// Best-effort estimate of currently active requests from /slots.
     pub async fn active_requests(&self) -> Result<u32> {
         let url = format!("http://127.0.0.1:{}/slots", self.port);
-        let client = reqwest::Client::builder()
-            .timeout(SLOTS_REQUEST_TIMEOUT)
-            .build()?;
-
-        let response = client.get(&url).send().await?;
+        let response = self.client.get(&url).timeout(SLOTS_REQUEST_TIMEOUT).send().await?;
         if !response.status().is_success() {
             anyhow::bail!("/slots returned HTTP {}", response.status());
         }
@@ -189,11 +187,7 @@ impl LlamaServer {
     /// Health check against the llama-server HTTP endpoint.
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("http://127.0.0.1:{}/health", self.port);
-        let client = reqwest::Client::builder()
-            .timeout(HEALTH_CHECK_TIMEOUT)
-            .build()?;
-
-        match client.get(&url).send().await {
+        match self.client.get(&url).timeout(HEALTH_CHECK_TIMEOUT).send().await {
             Ok(resp) => Ok(resp.status().is_success()),
             Err(_) => Ok(false),
         }

@@ -84,7 +84,7 @@ pub struct PresenceHandle {
     state: Arc<tokio::sync::Mutex<AgentPresenceState>>,
     client: reqwest::Client,
     config: Config,
-    token: Arc<tokio::sync::Mutex<String>>,
+    token: Arc<String>,
     identity: AgentIdentity,
 }
 
@@ -93,7 +93,7 @@ impl PresenceHandle {
         model_name: Option<String>,
         client: reqwest::Client,
         config: Config,
-        token: Arc<tokio::sync::Mutex<String>>,
+        token: Arc<String>,
         identity: AgentIdentity,
     ) -> Self {
         let state = Arc::new(tokio::sync::Mutex::new(AgentPresenceState::new(
@@ -181,12 +181,11 @@ impl PresenceHandle {
 
     /// Publish the current state snapshot to the platform.
     pub async fn publish(&self) {
-        let current_token = self.token.lock().await.clone();
         let snapshot = self.state.lock().await.clone();
         if let Err(e) = send_presence_once(
             &self.client,
             &self.config,
-            &current_token,
+            &self.token,
             &self.identity,
             &snapshot,
         )

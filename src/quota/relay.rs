@@ -85,7 +85,7 @@ pub async fn run_relay(
 ) -> Result<()> {
     let identity = identity::load_or_create_identity()?;
     let client = reqwest::Client::new();
-    let token = Arc::new(tokio::sync::Mutex::new(config.api_key.clone()));
+    let token = Arc::new(config.api_key.clone());
 
     // Create presence handle for quota mode
     let presence = PresenceHandle::new(
@@ -171,6 +171,8 @@ pub async fn run_relay(
         config.clone(),
         Arc::clone(&token),
         provider.to_string(),
+        Arc::clone(&semaphore),
+        max_concurrent,
         shutdown.clone(),
     );
 
@@ -471,15 +473,14 @@ fn extract_usage_from_event(event: &Value) -> Option<UsageStats> {
 async fn register_provider(
     client: &reqwest::Client,
     config: &Config,
-    token: &Arc<tokio::sync::Mutex<String>>,
+    token: &Arc<String>,
     provider: &str,
     model: &str,
     max_concurrent: u32,
 ) -> Result<()> {
-    let current_token = token.lock().await.clone();
     client
         .post(format!("{}/v1/quota/register", config.platform_url))
-        .header("Authorization", format!("Bearer {}", current_token))
+        .header("Authorization", format!("Bearer {}", token))
         .json(&serde_json::json!({
             "provider": provider,
             "model": model,
@@ -499,13 +500,12 @@ async fn register_provider(
 async fn deregister_provider(
     client: &reqwest::Client,
     config: &Config,
-    token: &Arc<tokio::sync::Mutex<String>>,
+    token: &Arc<String>,
     provider: &str,
 ) -> Result<()> {
-    let current_token = token.lock().await.clone();
     client
         .delete(format!("{}/v1/quota/deregister", config.platform_url))
-        .header("Authorization", format!("Bearer {}", current_token))
+        .header("Authorization", format!("Bearer {}", token))
         .json(&serde_json::json!({ "provider": provider }))
         .send()
         .await
@@ -518,8 +518,10 @@ async fn deregister_provider(
 fn spawn_quota_heartbeat(
     client: reqwest::Client,
     config: Config,
-    token: Arc<tokio::sync::Mutex<String>>,
+    token: Arc<String>,
     provider: String,
+    semaphore: Arc<Semaphore>,
+    max_concurrent: u32,
     shutdown: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     let heartbeat_url = format!("{}/v1/quota/heartbeat", config.platform_url);
@@ -533,13 +535,13 @@ fn spawn_quota_heartbeat(
                 _ = interval.tick() => {}
             }
 
-            let current_token = token.lock().await.clone();
+            let active = max_concurrent.saturating_sub(semaphore.available_permits() as u32);
             let res = client
                 .post(&heartbeat_url)
-                .header("Authorization", format!("Bearer {}", current_token))
+                .header("Authorization", format!("Bearer {}", &*token))
                 .json(&serde_json::json!({
                     "provider": provider,
-                    "active_sessions": 0,
+                    "active_sessions": active,
                 }))
                 .send()
                 .await;
