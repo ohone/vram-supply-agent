@@ -26,7 +26,7 @@ libc = "0.2"
 tokio-util = "0.7"
 
 # WebSocket relay dependencies
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 futures-util = { version = "0.3", features = ["sink"] }
 rustls = "0.22"
 tokio-rustls = "0.25" 
