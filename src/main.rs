@@ -4,6 +4,7 @@ mod config;
 mod identity;
 mod models;
 mod presence;
+mod quota;
 mod verification;
 
 use std::sync::Arc;
@@ -31,9 +32,13 @@ enum Commands {
     Auth,
     /// Start providing model inference
     Serve {
-        /// Path to the model file to serve
+        /// Model to serve: a local GGUF path or a canonical HuggingFace model ID (e.g., "qwen/qwen3.5-9b")
         #[arg(long)]
         model: Option<String>,
+
+        /// Quantization level (e.g., Q4_K_M, Q8_0). Required when --model is a canonical model ID.
+        #[arg(long)]
+        quant: Option<String>,
 
         /// Override the model name sent to the platform (e.g., "meta-llama/llama-3.1-8b-instruct")
         #[arg(long)]
@@ -46,6 +51,49 @@ enum Commands {
         /// Skip model integrity verification
         #[arg(long)]
         skip_verify: bool,
+
+        /// Input token price in cents per million tokens (overrides VRAM_SUPPLY_INPUT_PRICE)
+        #[arg(long)]
+        input_price: Option<u32>,
+
+        /// Output token price in cents per million tokens (overrides VRAM_SUPPLY_OUTPUT_PRICE)
+        #[arg(long)]
+        output_price: Option<u32>,
+    },
+    /// Connect a third-party subscription account
+    Connect {
+        /// Provider to connect (e.g., openai)
+        provider: String,
+    },
+    /// Sell unused subscription quota via the vram.supply marketplace
+    SellQuota {
+        /// Provider backend to use (claude-code or openai-codex)
+        #[arg(long, default_value = "claude-code")]
+        provider: String,
+
+        /// Maximum concurrent sessions
+        #[arg(long, default_value = "1")]
+        max_concurrent: u32,
+
+        /// Maximum spend per request in USD
+        #[arg(long, default_value = "1.00")]
+        max_budget_usd: f64,
+
+        /// Model alias (e.g. sonnet, opus, gpt-4o)
+        #[arg(long, default_value = "sonnet")]
+        model: String,
+
+        /// Check prerequisites and show status only
+        #[arg(long)]
+        status: bool,
+
+        /// Input token price in cents per million tokens (overrides VRAM_SUPPLY_INPUT_PRICE)
+        #[arg(long)]
+        input_price: Option<u32>,
+
+        /// Output token price in cents per million tokens (overrides VRAM_SUPPLY_OUTPUT_PRICE)
+        #[arg(long)]
+        output_price: Option<u32>,
     },
     /// Model management commands
     Models {
@@ -90,12 +138,55 @@ async fn main() -> Result<()> {
 
         Commands::Serve {
             model,
+            quant,
             model_name,
             hf_repo,
             skip_verify,
+            input_price,
+            output_price,
         } => {
-            let config = config::Config::load()?;
-            run_serve(&config, model, model_name, hf_repo, skip_verify).await?;
+            let mut config = config::Config::load()?;
+            if let Some(p) = input_price {
+                config.input_price_per_million = p;
+            }
+            if let Some(p) = output_price {
+                config.output_price_per_million = p;
+            }
+            run_serve(&config, model, quant, model_name, hf_repo, skip_verify).await?;
+        }
+
+        Commands::Connect { provider } => {
+            quota::handle_connect(&provider).await?;
+        }
+
+        Commands::SellQuota {
+            provider,
+            max_concurrent,
+            max_budget_usd,
+            model,
+            status,
+            input_price,
+            output_price,
+        } => {
+            let mut config = config::Config::load()?;
+            if let Some(p) = input_price {
+                config.input_price_per_million = p;
+            }
+            if let Some(p) = output_price {
+                config.output_price_per_million = p;
+            }
+            if status {
+                quota::handle_sell_quota_status(&config, &provider).await?;
+            } else {
+                quota::handle_sell_quota(
+                    &config,
+                    &provider,
+                    max_concurrent,
+                    max_budget_usd,
+                    &model,
+                )
+                .await?;
+            }
         }
 
         Commands::Models { command } => match command {
@@ -156,6 +247,7 @@ struct RegisterResponse {
 async fn run_serve(
     config: &config::Config,
     model_arg: Option<String>,
+    quant: Option<String>,
     model_name_override: Option<String>,
     hf_repo: Option<String>,
     skip_verify: bool,
@@ -167,8 +259,8 @@ async fn run_serve(
     let client = reqwest::Client::new();
 
     // Determine which model to serve
-    let model_path = match model_arg {
-        Some(m) => models::find_model(config, &m)?,
+    let resolved = match model_arg {
+        Some(m) => models::resolve_model(config, &m, quant.as_deref()).await?,
         None => {
             let local = models::list_local_models(config)?;
             if local.is_empty() {
@@ -180,30 +272,39 @@ async fn run_serve(
                 println!("Multiple models found, using first one: {}", local[0].name);
                 println!("Use --model to specify a different one.");
             }
-            local[0].path.clone()
+            models::ResolvedModel {
+                path: local[0].path.clone(),
+                canonical_name: models::normalize_model_name(&local[0].path),
+                gguf_repo: None,
+            }
         }
     };
+    let model_path = &resolved.path;
     tracing::info!("Serving model: {}", model_path);
+
+    // Determine verification repo: explicit --hf-repo > resolved gguf_repo > None
+    let effective_hf_repo = hf_repo.or(resolved.gguf_repo);
 
     // Verify model integrity
     let model_sha256 = if skip_verify {
-        verification::verify_model(&model_path, "", true).await?
+        verification::verify_model(model_path, "", true).await?
     } else {
-        let hf_repo_id = hf_repo.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Model verification requires --hf-repo <repo_id> \
-                 (e.g., --hf-repo TheBloke/Llama-2-7B-GGUF).\n\
-                 Use --skip-verify to bypass verification."
-            )
-        })?;
-        let sha = verification::verify_model(&model_path, hf_repo_id, false).await?;
-        println!("Model verified: {} (SHA-256: {})", hf_repo_id, sha);
-        sha
+        match effective_hf_repo.as_ref() {
+            Some(hf_repo_id) => {
+                let sha = verification::verify_model(model_path, hf_repo_id, false).await?;
+                println!("Model verified: {} (SHA-256: {})", hf_repo_id, sha);
+                sha
+            }
+            None => {
+                tracing::info!("No --hf-repo provided and model was not resolved from a canonical ID; skipping verification");
+                verification::verify_model(model_path, "", true).await?
+            }
+        }
     };
 
     let model_name = match model_name_override {
         Some(name) => name,
-        None => models::normalize_model_name(&model_path),
+        None => resolved.canonical_name.clone(),
     };
 
     // Create presence handle and start heartbeat loop
@@ -263,6 +364,10 @@ async fn run_serve(
     println!("vram.supply provider runtime is running. Press Ctrl+C to stop.");
     println!("  Model: {}", model_name);
     println!("  Endpoint: {}", config.public_url);
+    println!(
+        "  Pricing: {} / {} ¢ per M tokens (input / output)",
+        config.input_price_per_million, config.output_price_per_million
+    );
     println!("  Instance ID: {}", reg.id);
 
     // Spawn background tasks

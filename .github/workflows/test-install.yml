@@ -97,13 +97,16 @@ jobs:
 
       - name: Tamper and verify rejection
         run: |
+          # Create a fake binary that will fail checksum
           TMPDIR="$(mktemp -d)"
           REPO="ohone/vram-supply-agent"
 
+          # Fetch the latest version tag
           VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
             | grep '"tag_name"' \
             | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
 
+          # Detect target triple
           OS="$(uname -s)"
           ARCH="$(uname -m)"
           case "${OS}" in
@@ -116,13 +119,19 @@ jobs:
           esac
           TARGET="${ARCH_TARGET}-${OS_TARGET}"
 
+          # Download the real binary
           curl -fSL -o "${TMPDIR}/vramsply" \
             "https://github.com/${REPO}/releases/download/${VERSION}/vramsply-${TARGET}"
+
+          # Tamper: flip a byte
           printf '\xff' | dd of="${TMPDIR}/vramsply" bs=1 seek=64 count=1 conv=notrunc 2>/dev/null
 
+          # Create a local HTTP server to serve the tampered binary and real checksums
           CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"
           curl -fSL -o "${TMPDIR}/SHA256SUMS.txt" "${CHECKSUMS_URL}"
 
+          # Run the installer overriding curl to serve our tampered file
+          # Instead, we test the checksum logic directly
           case "${OS}" in
             Linux)  ACTUAL="$(sha256sum "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
             Darwin) ACTUAL="$(shasum -a 256 "${TMPDIR}/vramsply" | awk '{print $1}')" ;;

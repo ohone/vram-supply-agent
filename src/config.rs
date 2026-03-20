@@ -54,6 +54,9 @@ impl Config {
             "https://api.vram.supply".to_string(),
         )?;
         let port: u16 = env_or("VRAM_SUPPLY_PORT", 8080)?;
+        // Default is http://localhost for local development only.
+        // Production providers must set a public HTTPS URL — the platform
+        // rejects http:// registrations for non-local endpoints.
         let public_url = env_or(
             "VRAM_SUPPLY_PUBLIC_URL",
             format!("http://localhost:{}", port),

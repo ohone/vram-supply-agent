@@ -18,24 +18,28 @@ pub enum AgentPresenceStatus {
     Serving,
     Degraded,
     Error,
+    QuotaReady,   // Connected to platform WS, waiting for requests
+    QuotaServing, // Actively running Claude session(s)
 }
 
 impl AgentPresenceStatus {
     /// Returns whether transitioning from `self` to `target` is valid.
     ///
     /// ```text
-    /// Idle         → LoadingModel, Unavailable, Error
+    /// Idle         → LoadingModel, QuotaReady, Unavailable, Error
     /// LoadingModel → Ready, Error, Unavailable
     /// Ready        → Serving, LoadingModel, Degraded, Error, Unavailable
     /// Serving      → Ready, Degraded, Error, Unavailable
     /// Degraded     → Ready, LoadingModel, Error, Unavailable
     /// Error        → LoadingModel, Unavailable
+    /// QuotaReady   → QuotaServing, Degraded, Error, Unavailable
+    /// QuotaServing → QuotaReady, Degraded, Error, Unavailable
     /// ```
     fn can_transition_to(&self, target: &AgentPresenceStatus) -> bool {
         use AgentPresenceStatus::*;
         matches!(
             (self, target),
-            (Idle, LoadingModel | Unavailable | Error)
+            (Idle, LoadingModel | QuotaReady | Unavailable | Error)
                 | (LoadingModel, Ready | Error | Unavailable)
                 | (
                     Ready,
@@ -44,6 +48,8 @@ impl AgentPresenceStatus {
                 | (Serving, Ready | Degraded | Error | Unavailable)
                 | (Degraded, Ready | LoadingModel | Error | Unavailable)
                 | (Error, LoadingModel | Unavailable)
+                | (QuotaReady, QuotaServing | Degraded | Error | Unavailable)
+                | (QuotaServing, QuotaReady | Degraded | Error | Unavailable)
         )
     }
 }

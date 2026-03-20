@@ -21,6 +21,7 @@ pub struct HfFileEntry {
 #[derive(Debug, Deserialize)]
 pub struct LfsInfo {
     pub oid: String,
+    #[allow(dead_code)]
     pub size: u64,
 }
 

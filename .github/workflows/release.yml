@@ -19,12 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify tag matches crate version
+      - name: Verify tag matches Cargo.toml version
         run: |
           VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
           EXPECTED_TAG="v${VERSION}"
           if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
-            echo "Release tag ${GITHUB_REF_NAME} does not match crate version ${EXPECTED_TAG}" >&2
+            echo "Release tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${EXPECTED_TAG}" >&2
             exit 1
           fi
 
