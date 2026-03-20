@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::time::timeout;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::http::Request, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -111,7 +111,21 @@ pub async fn run_relay(
     presence.publish().await;
     info!("Connecting to platform WebSocket: {}", ws_url);
 
-    let (ws_stream, _) = connect_async(&ws_url)
+    let ws_request = Request::builder()
+        .uri(&ws_url)
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .header("Host", ws_url.split('/').nth(2).unwrap_or("api.vram.supply"))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .body(())
+        .context("Failed to build WebSocket request")?;
+
+    let (ws_stream, _) = connect_async(ws_request)
         .await
         .context("Failed to connect to platform WebSocket")?;
 

@@ -225,10 +225,14 @@ struct PresencePayload {
     arch: String,
     agent_version: String,
     status: AgentPresenceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
     current_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     loading_progress_pct: Option<u8>,
     active_requests: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_message: Option<String>,
 }
 
