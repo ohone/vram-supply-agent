@@ -144,25 +144,6 @@ impl ClaudeSession {
 
         Ok(())
     }
-
-    /// Check if the process is still running
-    pub fn is_running(&mut self) -> bool {
-        if let Some(ref mut child) = self.child {
-            match child.try_wait() {
-                Ok(None) => true, // Still running
-                Ok(Some(status)) => {
-                    debug!("Claude process exited with status: {}", status);
-                    false
-                }
-                Err(e) => {
-                    warn!("Failed to check Claude process status: {}", e);
-                    false
-                }
-            }
-        } else {
-            false
-        }
-    }
 }
 
 impl Drop for ClaudeSession {

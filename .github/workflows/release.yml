@@ -78,12 +78,12 @@ jobs:
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/vramsply vramsply-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/vramsupply vramsupply-${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
         with:
-          name: vramsply-${{ matrix.target }}
-          path: vramsply-${{ matrix.target }}
+          name: vramsupply-${{ matrix.target }}
+          path: vramsupply-${{ matrix.target }}
 
   release:
     name: Publish release
@@ -100,7 +100,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum vramsply-* > SHA256SUMS.txt
+          sha256sum vramsupply-* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Install cosign
@@ -109,7 +109,7 @@ jobs:
       - name: Sign artifacts with Sigstore
         run: |
           cd artifacts
-          for file in vramsply-* SHA256SUMS.txt; do
+          for file in vramsupply-* SHA256SUMS.txt; do
             cosign sign-blob --yes --bundle "${file}.bundle" "${file}"
           done
 
@@ -135,7 +135,7 @@ jobs:
         id: hash
         run: |
           cd artifacts
-          HASHES="$(sha256sum vramsply-* | base64 -w0)"
+          HASHES="$(sha256sum vramsupply-* | base64 -w0)"
           echo "hashes=${HASHES}" >> "$GITHUB_OUTPUT"
 
   provenance:

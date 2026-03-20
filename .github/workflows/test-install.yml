@@ -36,12 +36,12 @@ jobs:
         run: sh install.sh
 
       - name: Verify binary runs
-        run: ~/.local/bin/vramsply --version
+        run: ~/.local/bin/vramsupply --version
 
       - name: Verify released auth surface matches API-key flow
         if: github.event_name == 'workflow_run'
         run: |
-          HELP="$(~/.local/bin/vramsply auth --help)"
+          HELP="$(~/.local/bin/vramsupply auth --help)"
           echo "${HELP}"
           if echo "${HELP}" | grep -q "login"; then
             echo "FAIL: stale OAuth auth commands were published" >&2
@@ -80,7 +80,7 @@ jobs:
 
       - name: Verify version string
         run: |
-          VERSION="$(~/.local/bin/vramsply --version)"
+          VERSION="$(~/.local/bin/vramsupply --version)"
           echo "Got: ${VERSION}"
           echo "${VERSION}" | grep -q "${{ steps.latest.outputs.version }}"
 
@@ -120,11 +120,11 @@ jobs:
           TARGET="${ARCH_TARGET}-${OS_TARGET}"
 
           # Download the real binary
-          curl -fSL -o "${TMPDIR}/vramsply" \
-            "https://github.com/${REPO}/releases/download/${VERSION}/vramsply-${TARGET}"
+          curl -fSL -o "${TMPDIR}/vramsupply" \
+            "https://github.com/${REPO}/releases/download/${VERSION}/vramsupply-${TARGET}"
 
           # Tamper: flip a byte
-          printf '\xff' | dd of="${TMPDIR}/vramsply" bs=1 seek=64 count=1 conv=notrunc 2>/dev/null
+          printf '\xff' | dd of="${TMPDIR}/vramsupply" bs=1 seek=64 count=1 conv=notrunc 2>/dev/null
 
           # Create a local HTTP server to serve the tampered binary and real checksums
           CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"
@@ -133,10 +133,10 @@ jobs:
           # Run the installer overriding curl to serve our tampered file
           # Instead, we test the checksum logic directly
           case "${OS}" in
-            Linux)  ACTUAL="$(sha256sum "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
-            Darwin) ACTUAL="$(shasum -a 256 "${TMPDIR}/vramsply" | awk '{print $1}')" ;;
+            Linux)  ACTUAL="$(sha256sum "${TMPDIR}/vramsupply" | awk '{print $1}')" ;;
+            Darwin) ACTUAL="$(shasum -a 256 "${TMPDIR}/vramsupply" | awk '{print $1}')" ;;
           esac
-          EXPECTED="$(grep "vramsply-${TARGET}" "${TMPDIR}/SHA256SUMS.txt" | awk '{print $1}')"
+          EXPECTED="$(grep "vramsupply-${TARGET}" "${TMPDIR}/SHA256SUMS.txt" | awk '{print $1}')"
 
           if [ "${ACTUAL}" = "${EXPECTED}" ]; then
             echo "FAIL: tampered binary matched checksum (this should not happen)" >&2

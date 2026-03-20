@@ -61,12 +61,12 @@ pub fn print_prereq_status(status: &PrereqStatus) {
             println!("  ✗ OpenAI Codex not connected");
             println!();
             println!("  Connect OpenAI first:");
-            println!("    vramsply connect openai");
+            println!("    vramsupply connect openai");
             println!();
         }
 
         if !all_ok(status) {
-            println!("  Then re-run: vramsply sell-quota --provider openai-codex");
+            println!("  Then re-run: vramsupply sell-quota --provider openai-codex");
             println!();
         }
         return;
@@ -116,7 +116,7 @@ pub fn print_prereq_status(status: &PrereqStatus) {
     }
 
     if !all_ok(status) {
-        println!("  Then re-run: vramsply sell-quota");
+        println!("  Then re-run: vramsupply sell-quota");
         println!();
     }
 }

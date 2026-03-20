@@ -322,7 +322,7 @@ Required during handshake:
 
 ```
 Authorization: Bearer <agent_api_key>
-User-Agent: vramsply-agent/<version>
+User-Agent: vramsupply-agent/<version>
 Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Version: 13

@@ -10,7 +10,7 @@ set -eu
 
 REPO="ohone/vram-supply-agent"
 INSTALL_DIR="${HOME}/.local/bin"
-BINARY_NAME="vramsply"
+BINARY_NAME="vramsupply"
 
 main() {
     detect_platform

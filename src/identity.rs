@@ -22,7 +22,7 @@ pub struct AgentIdentity {
 fn identity_path() -> Result<PathBuf> {
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-    Ok(home.join(".vram-supply").join("vramsply.json"))
+    Ok(home.join(".vram-supply").join("vramsupply.json"))
 }
 
 fn detect_hostname() -> Option<String> {

@@ -12,17 +12,17 @@ echo $VRAM_SUPPLY_API_KEY       # Your vram.supply API key
 echo $VRAM_SUPPLY_PLATFORM_URL  # Usually https://api.vram.supply
 
 # Claude Code sellers also need Claude + sandbox runtime installed
-# OpenAI Codex sellers must run: vramsply connect openai
+# OpenAI Codex sellers must run: vramsupply connect openai
 ```
 
 ### 2. Check Configuration
 
 ```bash
 # Claude Code
-vramsply sell-quota --status
+vramsupply sell-quota --status
 
 # OpenAI Codex
-vramsply sell-quota --provider openai-codex --status
+vramsupply sell-quota --provider openai-codex --status
 ```
 
 This command validates your configuration and shows:
@@ -35,14 +35,14 @@ This command validates your configuration and shows:
 
 ```bash
 # Claude Code (default pricing from env vars or 100/200 cents per M tokens)
-vramsply sell-quota
+vramsupply sell-quota
 
 # Claude Code with custom pricing
-vramsply sell-quota --input-price 300 --output-price 1500
+vramsupply sell-quota --input-price 300 --output-price 1500
 
 # OpenAI Codex (inference-only)
-vramsply connect openai
-vramsply sell-quota --provider openai-codex --input-price 50 --output-price 150
+vramsupply connect openai
+vramsupply sell-quota --provider openai-codex --input-price 50 --output-price 150
 ```
 
 The agent will:
@@ -144,7 +144,7 @@ The agent provides structured logging for monitoring:
 
 ```bash
 # Run with debug logging
-RUST_LOG=debug vramsply sell-quota
+RUST_LOG=debug vramsupply sell-quota
 
 # Key log events to monitor:
 # - Connection status
@@ -172,7 +172,7 @@ RUST_LOG=debug vramsply sell-quota
 curl -I https://api.vram.supply
 
 # Verify API key
-vramsply auth
+vramsupply auth
 
 # Check firewall settings (ensure outbound HTTPS/WSS allowed)
 ```
@@ -268,7 +268,7 @@ A: The agent validates against a specific set of allowed models. Updates may be 
 For issues or questions:
 
 1. Check the logs for specific error messages
-2. Verify your configuration with `vramsply sell-quota --status`
+2. Verify your configuration with `vramsupply sell-quota --status`
 3. Test your upstream API keys independently
 4. Review this guide for common issues
 5. Contact vram.supply support with detailed logs and error messages
@@ -301,7 +301,7 @@ pub struct TlsConfig {
 
 ```bash
 # Detailed component logging
-export RUST_LOG="vramsply=debug,websocket_relay=trace"
+export RUST_LOG="vramsupply=debug,websocket_relay=trace"
 
 # JSON structured logging
 export RUST_LOG_FORMAT="json"

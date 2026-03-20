@@ -14,7 +14,7 @@ Pin a specific version:
 VRAM_SUPPLY_AGENT_VERSION=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/ohone/vram-supply/main/provider-agent/install.sh | sh
 ```
 
-The installer downloads the binary for your platform, verifies its SHA256 checksum, and installs it to `~/.local/bin/vramsply`.
+The installer downloads the binary for your platform, verifies its SHA256 checksum, and installs it to `~/.local/bin/vramsupply`.
 
 ### Verify with Sigstore (optional)
 
@@ -22,8 +22,8 @@ Every release binary is signed with [Sigstore](https://sigstore.dev) keyless sig
 
 ```bash
 cosign verify-blob \
-  --bundle vramsply-x86_64-unknown-linux-gnu.bundle \
-  vramsply-x86_64-unknown-linux-gnu
+  --bundle vramsupply-x86_64-unknown-linux-gnu.bundle \
+  vramsupply-x86_64-unknown-linux-gnu
 ```
 
 ## Quick start
@@ -33,10 +33,10 @@ cosign verify-blob \
 export VRAM_SUPPLY_API_KEY=your-api-key
 
 # 2. Start serving a model (canonical HuggingFace model ID — auto-downloads GGUF)
-vramsply serve --model "qwen/qwen3.5-9b" --quant Q4_K_M
+vramsupply serve --model "qwen/qwen3.5-9b" --quant Q4_K_M
 
 # Or serve a local GGUF file directly
-vramsply serve --model ./my-model.gguf
+vramsupply serve --model ./my-model.gguf
 ```
 
 The agent will:
@@ -65,7 +65,7 @@ Earn by selling unused capacity from supported coding subscriptions.
 export VRAM_SUPPLY_API_KEY=your-api-key
 
 # 2. Start selling Claude Code quota
-vramsply sell-quota
+vramsupply sell-quota
 ```
 
 #### OpenAI Codex
@@ -75,10 +75,10 @@ vramsply sell-quota
 export VRAM_SUPPLY_API_KEY=your-api-key
 
 # 2. Connect your OpenAI account locally
-vramsply connect openai
+vramsupply connect openai
 
 # 3. Start sell-quota mode with the Codex backend
-vramsply sell-quota --provider openai-codex
+vramsupply sell-quota --provider openai-codex
 ```
 
 ### Configuration
@@ -95,20 +95,20 @@ vramsply sell-quota --provider openai-codex
 
 | Command | Description |
 |---------|-------------|
-| `vramsply auth` | Show current authentication status |
-| `vramsply connect openai` | Connect an OpenAI Codex account locally via OAuth |
-| `vramsply serve --model <path-or-model-id>` | Start serving a model |
-| `vramsply serve --model <model-id> --quant <quant>` | Serve a model by canonical ID with a specific quantization |
-| `vramsply serve --model <path> --model-name <name>` | Serve with a custom model name |
-| `vramsply serve --model <path> --hf-repo <repo_id>` | Serve with model integrity verification |
-| `vramsply serve --model <path> --skip-verify` | Serve without model verification |
-| `vramsply serve --input-price 50 --output-price 150` | Serve with custom pricing (cents per million tokens) |
-| `vramsply sell-quota` | Start sell-quota mode with Claude Code |
-| `vramsply sell-quota --provider openai-codex` | Start sell-quota mode with OpenAI Codex |
-| `vramsply sell-quota --input-price 300 --output-price 1500` | Sell quota with custom pricing |
-| `vramsply models list` | List locally available GGUF models |
-| `vramsply models pull <hf_repo_id>` | Download a model from HuggingFace |
-| `vramsply status` | Show agent status |
+| `vramsupply auth` | Show current authentication status |
+| `vramsupply connect openai` | Connect an OpenAI Codex account locally via OAuth |
+| `vramsupply serve --model <path-or-model-id>` | Start serving a model |
+| `vramsupply serve --model <model-id> --quant <quant>` | Serve a model by canonical ID with a specific quantization |
+| `vramsupply serve --model <path> --model-name <name>` | Serve with a custom model name |
+| `vramsupply serve --model <path> --hf-repo <repo_id>` | Serve with model integrity verification |
+| `vramsupply serve --model <path> --skip-verify` | Serve without model verification |
+| `vramsupply serve --input-price 50 --output-price 150` | Serve with custom pricing (cents per million tokens) |
+| `vramsupply sell-quota` | Start sell-quota mode with Claude Code |
+| `vramsupply sell-quota --provider openai-codex` | Start sell-quota mode with OpenAI Codex |
+| `vramsupply sell-quota --input-price 300 --output-price 1500` | Sell quota with custom pricing |
+| `vramsupply models list` | List locally available GGUF models |
+| `vramsupply models pull <hf_repo_id>` | Download a model from HuggingFace |
+| `vramsupply status` | Show agent status |
 
 ## Configuration
 
@@ -153,10 +153,10 @@ To expose your llama-server over HTTPS, use one of the following approaches:
 
 ```bash
 # Local path — serves directly
-vramsply serve --model ./my-model.gguf
+vramsupply serve --model ./my-model.gguf
 
 # Canonical model ID — auto-downloads the right GGUF
-vramsply serve --model "meta-llama/llama-3.2-3b-instruct" --quant Q4_K_M
+vramsupply serve --model "meta-llama/llama-3.2-3b-instruct" --quant Q4_K_M
 ```
 
 When you pass a canonical model ID (e.g., `qwen/qwen3.5-9b`):
@@ -184,7 +184,7 @@ Agent identity is stored in `~/.vram-supply/`:
 
 | File | Purpose |
 |------|---------|
-| `vramsply.json` | Persistent agent UID |
+| `vramsupply.json` | Persistent agent UID |
 | `verification-cache.json` | SHA-256 model verification cache |
 
 ## Model verification
@@ -197,7 +197,7 @@ When serving a model, the agent can verify its integrity by comparing the file's
 git clone https://github.com/ohone/vram-supply.git
 cd vram-supply/provider-agent
 cargo build --release
-# Binary is at target/release/vramsply
+# Binary is at target/release/vramsupply
 ```
 
 ## License
