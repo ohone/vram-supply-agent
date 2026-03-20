@@ -41,7 +41,8 @@ jobs:
             cross: false
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            cross: true
+            cross: false
+            linker: gcc-aarch64-linux-gnu
           - target: x86_64-apple-darwin
             runner: macos-latest
             cross: false
@@ -57,16 +58,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install cross
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Install cross-compilation linker
+        if: matrix.linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.linker }}
 
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
+      - name: Configure cross-compilation linker
+        if: matrix.linker
+        run: |
+          mkdir -p .cargo
+          cat >> .cargo/config.toml <<EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
 
-      - name: Build (cargo)
-        if: ${{ !matrix.cross }}
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary
