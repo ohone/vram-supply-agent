@@ -80,7 +80,7 @@ jobs:
         run: |
           cp target/${{ matrix.target }}/release/vramsply vramsply-${{ matrix.target }}
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: vramsply-${{ matrix.target }}
           path: vramsply-${{ matrix.target }}
@@ -92,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -126,7 +126,7 @@ jobs:
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -144,6 +144,8 @@ jobs:
       actions: read
       id-token: write
       contents: write
+    # TODO: upgrade when slsa-github-generator releases a version with Node 24 support
+    # (v2.1.0 is the latest as of 2026-03, still uses Node 20 internally)
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.compute-subjects.outputs.hashes }}"
