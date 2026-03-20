@@ -217,7 +217,8 @@ async fn check_claude_auth() -> bool {
     {
         Ok(output) if output.status.success() => {
             let status = String::from_utf8_lossy(&output.stdout);
-            let is_authenticated = status.contains("authenticated");
+            let is_authenticated =
+                status.contains("authenticated") || status.contains("\"loggedIn\": true");
             debug!("Claude auth status: {}", status.trim());
             is_authenticated
         }
