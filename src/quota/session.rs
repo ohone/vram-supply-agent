@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use super::sandbox::SandboxSession;
 
 pub struct ClaudeSession {
-    child: Child,
+    child: Option<Child>,
     stdout: BufReader<ChildStdout>,
     stdin: Option<ChildStdin>,
 }
@@ -21,17 +21,22 @@ impl ClaudeSession {
         model: &str,
         max_budget_usd: f64,
     ) -> Result<Self> {
-        // Build the claude command to run inside srt
+        // Build the claude command to run inside srt.
+        // Shell-quote interpolated values to guard against injection via
+        // paths with spaces, unexpected model names, etc.
+        let tmpdir_str = sandbox.tmpdir.display().to_string();
+        let quoted_tmpdir = shlex::try_quote(&tmpdir_str)
+            .map_err(|e| anyhow::anyhow!("Failed to shell-quote tmpdir: {e}"))?;
+        let quoted_model = shlex::try_quote(model)
+            .map_err(|e| anyhow::anyhow!("Failed to shell-quote model: {e}"))?;
+
         let claude_cmd = format!(
-            "cd {} && claude -p \
+            "cd {quoted_tmpdir} && claude -p \
              --output-format stream-json \
              --dangerously-skip-permissions \
              --no-session-persistence \
-             --model {} \
-             --max-budget-usd {}",
-            sandbox.tmpdir.display(),
-            model,
-            max_budget_usd
+             --model {quoted_model} \
+             --max-budget-usd {max_budget_usd}",
         );
 
         debug!(
@@ -67,7 +72,7 @@ impl ClaudeSession {
         let stdout = BufReader::new(stdout);
 
         let mut session = ClaudeSession {
-            child,
+            child: Some(child),
             stdout,
             stdin: Some(stdin),
         };
@@ -123,16 +128,18 @@ impl ClaudeSession {
     pub async fn abort(&mut self) -> Result<()> {
         debug!("Aborting Claude session");
 
-        // Kill the child process
-        match self.child.kill().await {
-            Ok(()) => debug!("Successfully killed Claude process"),
-            Err(e) => warn!("Failed to kill Claude process: {}", e),
-        }
+        if let Some(ref mut child) = self.child {
+            // Kill the child process
+            match child.kill().await {
+                Ok(()) => debug!("Successfully killed Claude process"),
+                Err(e) => warn!("Failed to kill Claude process: {}", e),
+            }
 
-        // Wait for the process to exit
-        match self.child.wait().await {
-            Ok(status) => debug!("Claude process exited with status: {}", status),
-            Err(e) => warn!("Failed to wait for Claude process: {}", e),
+            // Wait for the process to exit
+            match child.wait().await {
+                Ok(status) => debug!("Claude process exited with status: {}", status),
+                Err(e) => warn!("Failed to wait for Claude process: {}", e),
+            }
         }
 
         Ok(())
@@ -140,25 +147,37 @@ impl ClaudeSession {
 
     /// Check if the process is still running
     pub fn is_running(&mut self) -> bool {
-        match self.child.try_wait() {
-            Ok(None) => true, // Still running
-            Ok(Some(status)) => {
-                debug!("Claude process exited with status: {}", status);
-                false
+        if let Some(ref mut child) = self.child {
+            match child.try_wait() {
+                Ok(None) => true, // Still running
+                Ok(Some(status)) => {
+                    debug!("Claude process exited with status: {}", status);
+                    false
+                }
+                Err(e) => {
+                    warn!("Failed to check Claude process status: {}", e);
+                    false
+                }
             }
-            Err(e) => {
-                warn!("Failed to check Claude process status: {}", e);
-                false
-            }
+        } else {
+            false
         }
     }
 }
 
 impl Drop for ClaudeSession {
     fn drop(&mut self) {
-        if self.is_running() {
-            if let Err(e) = self.child.start_kill() {
+        if let Some(mut child) = self.child.take() {
+            if let Err(e) = child.start_kill() {
                 warn!("Failed to kill Claude process in Drop: {}", e);
+                return;
+            }
+            // Spawn an async task to reap the child so we don't leave a zombie
+            // in the process table.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = child.wait().await;
+                });
             }
         }
     }

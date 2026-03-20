@@ -47,7 +47,12 @@ impl LlamaServer {
     /// Best-effort estimate of currently active requests from /slots.
     pub async fn active_requests(&self) -> Result<u32> {
         let url = format!("http://127.0.0.1:{}/slots", self.port);
-        let response = self.client.get(&url).timeout(SLOTS_REQUEST_TIMEOUT).send().await?;
+        let response = self
+            .client
+            .get(&url)
+            .timeout(SLOTS_REQUEST_TIMEOUT)
+            .send()
+            .await?;
         if !response.status().is_success() {
             anyhow::bail!("/slots returned HTTP {}", response.status());
         }
@@ -187,7 +192,13 @@ impl LlamaServer {
     /// Health check against the llama-server HTTP endpoint.
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("http://127.0.0.1:{}/health", self.port);
-        match self.client.get(&url).timeout(HEALTH_CHECK_TIMEOUT).send().await {
+        match self
+            .client
+            .get(&url)
+            .timeout(HEALTH_CHECK_TIMEOUT)
+            .send()
+            .await
+        {
             Ok(resp) => Ok(resp.status().is_success()),
             Err(_) => Ok(false),
         }
@@ -219,11 +230,16 @@ impl LlamaServer {
 
 impl Drop for LlamaServer {
     fn drop(&mut self) {
-        if let Some(ref mut child) = self.child {
-            // Best-effort synchronous kill on drop
+        if let Some(mut child) = self.child.take() {
+            // Best-effort kill on drop
             let _ = child.start_kill();
-            // Reap the zombie so we don't leak a process table entry
-            let _ = child.try_wait();
+            // Spawn an async task to reap the child so we don't leave a zombie
+            // in the process table.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = child.wait().await;
+                });
+            }
         }
     }
 }
