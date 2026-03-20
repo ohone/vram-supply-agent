@@ -1,12 +1,12 @@
 [package]
 name = "vram-supply-agent"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "vram.supply provider agent — connect your model inference node to the marketplace"
 license = "Apache-2.0"
 
 [[bin]]
-name = "vramsply"
+name = "vramsupply"
 path = "src/main.rs"
 
 [dependencies]
@@ -37,6 +37,7 @@ bytes = "1.5"
 regex = "1.10"
 thiserror = "1.0"
 base64 = "0.22"
+shlex = "1.3.0"
 
 [dev-dependencies]
 tempfile = "3.24.0"
