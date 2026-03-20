@@ -114,7 +114,10 @@ pub async fn run_relay(
     let ws_request = Request::builder()
         .uri(&ws_url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Host", ws_url.split('/').nth(2).unwrap_or("api.vram.supply"))
+        .header(
+            "Host",
+            ws_url.split('/').nth(2).unwrap_or("api.vram.supply"),
+        )
         .header("Connection", "Upgrade")
         .header("Upgrade", "websocket")
         .header("Sec-WebSocket-Version", "13")
